@@ -374,6 +374,20 @@ async function handleAdmin(env,req,action,data,origin,apiPrefix='/api'){const us
   if(action==='createVoucher'){const code=clean(data.code).toUpperCase();if(!/^[A-Z0-9_-]{3,20}$/.test(code))throw new Error('Voucher code must be 3–20 letters/numbers.');const type=clean(data.type||'percent');if(!['percent','fixed','free_shipping'].includes(type))throw new Error('Invalid voucher type.');const value=num(data.value);if(type!=='free_shipping'&&value<=0)throw new Error('Discount value must be greater than zero.');if(type==='percent'&&value>100)throw new Error('Percentage discount cannot exceed 100%.');await env.DB.prepare(`INSERT INTO vouchers(code,type,value,min_spend,max_discount,max_shipping_discount,min_pages,min_copies,total_usage_limit,per_device_limit,start_at,end_at,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(code) DO UPDATE SET type=excluded.type,value=excluded.value,min_spend=excluded.min_spend,max_discount=excluded.max_discount,max_shipping_discount=excluded.max_shipping_discount,min_pages=excluded.min_pages,min_copies=excluded.min_copies,total_usage_limit=excluded.total_usage_limit,per_device_limit=excluded.per_device_limit,start_at=excluded.start_at,end_at=excluded.end_at,active=excluded.active,updated_at=excluded.updated_at`).bind(code,type,value,num(data.minSpend),data.maxDiscount===''||data.maxDiscount==null?null:num(data.maxDiscount),data.maxShippingDiscount===''||data.maxShippingDiscount==null?null:num(data.maxShippingDiscount),Math.max(0,Math.floor(num(data.minPages))),Math.max(0,Math.floor(num(data.minCopies))),data.totalUsageLimit===''||data.totalUsageLimit==null?null:Math.max(0,Math.floor(num(data.totalUsageLimit))),Math.max(1,Math.floor(num(data.perDeviceLimit,1))),data.startAt||null,data.endAt||null,1,now(),now()).run();return {success:true,vouchers:await listVouchers(env)};}
   if(action==='listVouchers')return {success:true,vouchers:await listVouchers(env)};
   if(action==='setVoucherActive'){await env.DB.prepare('UPDATE vouchers SET active=?,updated_at=? WHERE code=?').bind(data.active?1:0,now(),clean(data.code).toUpperCase()).run();return {success:true,vouchers:await listVouchers(env)};}
+  if(action==='deleteVoucher'){
+    const code=clean(data.code).toUpperCase();
+    if(!code)throw new Error('Voucher code is required.');
+    const existing=await env.DB.prepare('SELECT code FROM vouchers WHERE code=?').bind(code).first();
+    if(!existing)throw new Error('Voucher not found.');
+    const t=now();
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM pm_customer_vouchers WHERE voucher_code=?').bind(code),
+      env.DB.prepare('DELETE FROM voucher_redemptions WHERE voucher_code=?').bind(code),
+      env.DB.prepare('DELETE FROM vouchers WHERE code=?').bind(code)
+    ]);
+    await log(env,user.username,'DELETE_VOUCHER',`Deleted voucher ${code} at ${t}.`);
+    return {success:true,vouchers:await listVouchers(env)};
+  }
   if(action==='resetPrintingData'){if(clean(data.confirm)!=='RESET')throw new Error('Type RESET to confirm.');let deleted=0;const prefixes=env.PM_PRINT?['pmprinting/','pmprint/orders/']:['printing/'];for(const prefix of prefixes){let cursor;do{const listed=await env.PRINT_FILES.list({prefix,cursor});for(const o of listed.objects||[]){try{await env.PRINT_FILES.delete(o.key);deleted++;}catch(_){}}cursor=listed.truncated?listed.cursor:undefined;}while(cursor);}const stmts=[env.DB.prepare('DELETE FROM voucher_redemptions'),env.DB.prepare('DELETE FROM orders')];await env.DB.batch(stmts);await log(env,user.username,'RESET_PRINTING_DATA',`Reset printing data; deleted ${deleted} R2 file(s).`);return {success:true,deleted};}
   throw new Error('Unknown admin action.');
 }
