@@ -2759,8 +2759,8 @@
           <h2>1. Upload your document</h2>
           <div class="drop" id="drop" onclick="document.getElementById('file').click()">
             <div class="big">&#128196;</div>
-            <b>Drop a file here or tap to choose</b><small>PDF, Word, PowerPoint, and image files are accepted.<br>PDF is recommended for the most accurate analysis. Maximum file size: 20 MB.</small>
-            <input id="file" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation">
+            <b>Drop a file here or tap to choose</b><small>PDF and image files are accepted.<br><b>Word and PowerPoint files are not accepted.</b> Convert them to PDF first to preserve fonts, margins, and layout. Maximum file size: 20 MB.</small>
+            <input id="file" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,image/*,application/pdf">
           </div>
           <div class="file" id="fileBox">
             <div class="file-icon" id="fileIcon">FILE</div>
@@ -2786,7 +2786,7 @@
             order.
           </div>
           <div class="field" id="manualPagesField" style="display:none">
-            <label>NUMBER OF PAGES / SLIDES</label><input id="manualPages" type="number" min="1" value="1"><small style="display:block;color:var(--muted);margin-top:6px;font-size:10px">For Word and PowerPoint files, enter the number of pages/slides you want printed.</small>
+            <label>NUMBER OF PAGES / SLIDES</label><input id="manualPages" type="number" min="1" value="1"><small style="display:block;color:var(--muted);margin-top:6px;font-size:10px">Manual page entry is only available for supported files when automatic analysis cannot determine the page count.</small>
           </div>
           <div class="page-range-field">
             <label for="pageSelection">PAGES TO PRINT <small style="font-weight:500;color:var(--muted)">(optional)</small></label>
@@ -2795,9 +2795,7 @@
             <span id="pageSelectionStatus" class="page-range-status"></span>
           </div>
           <div class="warn"><b>Important:</b> Our service is for <b>printing only</b>. We do not fix, edit, resize, or
-            correct document formatting. Word and PowerPoint files may look different on another device because of
-            fonts, margins, versions, or layout. <b>We strongly recommend converting your file to PDF first</b> and
-            checking the PDF before uploading.</div>
+            correct document formatting. Word and PowerPoint files are not accepted because their design can change between devices, including fonts, margins, versions, or layout. <b>Convert your Word or PowerPoint file to PDF first</b>, check the PDF, and then upload the PDF.</div>
           <div class="warn"><b>Accuracy note:</b> For files analyzed with <b>High</b> confidence, the detected content
             type is locked to prevent incorrect pricing. For files that require manual setup, you may select the content
             type yourself.</div>
@@ -3409,6 +3407,16 @@ function setDefaultPickup(){
   updateSubmitState();
 }
 async function handleFileInputChange(event){const input=event&&event.target?event.target:$('file');const file=input&&input.files&&input.files.length?input.files[0]:null;if(!file){analysisState.status='idle';analysisState.file=null;analysisState.error=null;selectedFile=null;window.pmInkAnalysisRows=[];window.pmLocalFileHash='';lockContentType(false);setUploadProgress('hidden',0,'');updateSubmitState();return;}
+  const lowerName=String(file.name||'').toLowerCase();
+  const unsupportedOffice=/\.(doc|docx|ppt|pptx)$/i.test(lowerName)||/application\/(msword|vnd\.ms-powerpoint)/i.test(file.type)||/application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|presentationml\.presentation)/i.test(file.type);
+  if(unsupportedOffice){
+    input.value='';
+    selectedFile=null; detectedReady=false; analyzedPages=0; analysisState.status='idle'; analysisState.file=null; analysisState.error=null;
+    window.pmInkAnalysisRows=[]; window.pmLocalFileHash=''; lockContentType(false); setUploadProgress('hidden',0,'');
+    $('fileBox').classList.remove('show'); $('analysis').classList.remove('show'); $('undetectedNotice').classList.remove('show'); updatePrice(); updateSubmitState();
+    showToast('Word and PowerPoint files are not accepted. Please convert the file to PDF first, then upload the PDF.');
+    return;
+  }
   const token=++pmAnalysisRunId;analysisState.token=token;analysisState.status='analyzing';analysisState.file=file;analysisState.error=null;selectedFile=file;window.pmInkAnalysisRows=[];window.pmLocalFileHash='';detectedReady=false;analyzedPages=0;lockContentType(false);setUploadProgress('hidden',0,'');$('fileBox').classList.add('show');$('fileName').textContent=file.name;$('fileSize').textContent=(file.size/1024/1024).toFixed(2)+' MB';$('fileIcon').textContent=(file.name.split('.').pop()||'FILE').toUpperCase().slice(0,5);$('analysis').classList.add('show');$('analysisStatus').textContent='Analyzing locally…';updateSubmitState();
   try{await analyzeFile(file,false,{token});if(analysisState.token===token){analysisState.status='complete';await hashFile(file).then(x=>{if(analysisState.token===token)window.pmLocalFileHash=x;});}}catch(e){if(analysisState.token!==token||e?.code==='ANALYSIS_SUPERSEDED')return;analysisState.status='failed';analysisState.error=e;console.error('PMPRINT local analysis error:',e);showToast(e.message||'Could not analyze the file.');updateSubmitState();}}
 $('file').addEventListener('change',handleFileInputChange);
@@ -3427,7 +3435,7 @@ $('location').addEventListener('change',()=>{updateDeliveryNote();updatePrice();
                                                                                                                                                                                                                                                                                                $('locationField').style.display=delivery?'block':'none';
                                                                                                                                                                                                                                                                                                  updateDeliveryNote();
                                                                                                                                                                                                                                                                                                    updatePrice();
-                                                                                                                                                                                                                                                                                                   })});$('manualPages').addEventListener('input',()=>{if(selectedFile&&!selectedFile.name.toLowerCase().endsWith('.pdf')){analyzedPages=Math.max(1,+$('manualPages').value||1);detectedReady=true;updatePrice();updateSubmitState()}}); $('pageSelection').addEventListener('input',()=>{updatePageSelectionStatus();updatePrice();updateSubmitState()});
+                                                                                                                                                                                                                                                                                                   })});$('manualPages').addEventListener('input',()=>{if(selectedFile&&/\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(selectedFile.name)){analyzedPages=Math.max(1,+$('manualPages').value||1);detectedReady=true;updatePrice();updateSubmitState()}}); $('pageSelection').addEventListener('input',()=>{updatePageSelectionStatus();updatePrice();updateSubmitState()});
                                                                                                                                                                                                                                                                                                    
                                                                                                                                                                                                                                                                                                    
                                                                                                                                                                                                                                                                                                    const LOCAL_DB_NAME='PMPrintLocal';
@@ -3991,11 +3999,8 @@ async function runDocumentDetector(file){
   const name=file.name.toLowerCase();
   if(file.type==='application/pdf'||name.endsWith('.pdf'))return await detectPdfFile(file);
   if(file.type.startsWith('image/')||/\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(name))return await detectImageFile(file);
-  if(name.endsWith('.docx'))return await detectDocxFile(file);
-  if(name.endsWith('.pptx'))return await detectPptxFile(file);
-  if(name.endsWith('.doc'))return await detectLegacyDoc(file);
-  if(name.endsWith('.ppt'))throw new Error('Legacy .PPT files cannot be reliably rendered in the browser. Please save/export as .PPTX or PDF for automatic analysis.');
-  throw new Error('Unsupported file type. Please upload PDF, DOC/DOCX, PPT/PPTX, or an image.');
+  if(/\.(doc|docx|ppt|pptx)$/i.test(name))throw new Error('Word and PowerPoint files are not accepted. Please convert the file to PDF first, then upload the PDF.');
+  throw new Error('Unsupported file type. Please upload a PDF or image file.');
 }
 
 function buildPmInkAnalysis(result){return (result?.pageResults||[]).map((p,i)=>{const black=pmClamp01(p.blackCoverage),color=pmClamp01(p.colorCoverage),coverage=pmClamp01(p.inkArea??p.ink??p.visualDensity??(black+color));return {page_number:i+1,ink_category:pmCoverageCategory(coverage),coverage,black_usage_estimate:black,color_usage_estimate:color,cyan_coverage:pmClamp01(p.cyanCoverage),magenta_coverage:pmClamp01(p.magentaCoverage),yellow_coverage:pmClamp01(p.yellowCoverage),ink_usage_estimate:coverage,visual_density:pmClamp01(p.visualDensity??coverage),confidence:Number(p.confidence)||0,coverage_distribution:pmClamp01(p.coverageDistribution),bbox_coverage:pmClamp01(p.bboxCoverage),edge_density:pmClamp01(p.edgeDensity),analysis_method:p.analysisMethod||'FAST+CONSENSUS'};});}
