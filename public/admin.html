@@ -387,6 +387,21 @@
       z-index: 20
     }
 
+    .admin-inline-message {
+      display:none;
+      margin-top:8px;
+      padding:9px 11px;
+      border:1px solid var(--line);
+      border-radius:10px;
+      background:var(--panel);
+      font-size:11px;
+      line-height:1.4;
+    }
+    .admin-inline-message.show {display:block;}
+    .admin-inline-message.success {border-color:#74b98f;background:#f1fbf5;color:#087a40;}
+    .admin-inline-message.error {border-color:#d99a9a;background:#fff5f5;color:#a83222;}
+    .toast,.toast.show {display:none !important;}
+
     .toast.show {
       display: block
     }
@@ -2755,7 +2770,7 @@
 <div class="admin-module-body">
 <div class="admin-card"><h2>Account Management</h2><div class="admin-service"><div><strong id="adminAccountStatus">Checking…</strong><div style="font-size:9px;color:var(--muted);margin-top:3px">OFF keeps the original guest PM PRINT workflow. ON requires customer login before placing an order.</div></div><button class="admin-btn" id="adminAccountToggle" style="width:auto;margin:0" onclick="toggleAccountManagement(this)">Turn On</button></div></div>
 <div class="admin-card"><h2>Create Customer Account</h2><p class="admin-help">Accounts are created by the administrator only. The customer's full name is entered here and is used as the name on account-based orders.</p><div class="admin-order-grid"><div class="admin-field"><label>FULL NAME *</label><input id="acctName" placeholder="Customer full name"></div><div class="admin-field"><label>USERNAME *</label><input id="acctUsername" autocomplete="off" placeholder="Username"></div><div class="admin-field"><label>TEMPORARY PASSWORD *</label><input id="acctPassword" type="password" autocomplete="new-password" placeholder="At least 8 characters"></div><div class="admin-field"><label>PHONE / CONTACT</label><input id="acctPhone" placeholder="09xxxxxxxxx"></div><div class="admin-field"><label>GENDER</label><select id="acctGender"><option value="">Not specified</option><option>Male</option><option>Female</option><option>Other</option></select></div><div class="admin-field"><label>BIRTHDAY</label><input id="acctBirthday" type="date"></div><div class="admin-field"><label>STATUS</label><select id="acctStatus"><option>Active</option><option>Inactive</option></select></div></div><div class="admin-field"><label>BIO / NOTES</label><textarea id="acctBio" placeholder="Optional account notes"></textarea></div><button class="admin-btn" onclick="createCustomerAccount(this)">Create Account</button></div>
-<div class="admin-card"><h2>Customer Accounts</h2><div class="admin-order-toolbar"><div class="admin-field" style="margin:0;flex:1;min-width:160px"><label>SEARCH</label><input id="acctSearch" oninput="debouncedCustomerAccounts()" placeholder="Name, username or phone"></div><div class="admin-field" style="margin:0;min-width:130px"><label>STATUS</label><select id="acctFilter" onchange="loadCustomerAccounts()"><option value="">All</option><option>Active</option><option>Inactive</option></select></div><button class="admin-btn secondary" onclick="loadCustomerAccounts(this)">Refresh</button></div><div id="customerAccountSummary" class="admin-order-summary"></div><div id="customerAccounts">Loading…</div></div><aside class="customer-voucher-drawer" id="customerVoucherDrawer"><div class="admin-module-head"><div><b>Customer Vouchers</b><small id="customerVoucherTitle">Link available vouchers to this customer account.</small></div><button type="button" onclick="closeCustomerVoucherDrawer()">&#215;</button></div><div class="admin-module-body"><div class="admin-card"><div id="customerVoucherList">Loading…</div><button class="admin-btn" id="saveCustomerVouchersButton" type="button" onclick="saveCustomerVoucherLinks(this)">Save Voucher Links</button></div></div></aside>
+<div class="admin-card"><h2>Customer Accounts</h2><div class="admin-order-toolbar"><div class="admin-field" style="margin:0;flex:1;min-width:160px"><label>SEARCH</label><input id="acctSearch" oninput="debouncedCustomerAccounts()" placeholder="Name, username or phone"></div><div class="admin-field" style="margin:0;min-width:130px"><label>STATUS</label><select id="acctFilter" onchange="loadCustomerAccounts()"><option value="">All</option><option>Active</option><option>Inactive</option></select></div><button class="admin-btn secondary" onclick="loadCustomerAccounts(this)">Refresh</button></div><div id="customerAccountSummary" class="admin-order-summary"></div><div id="customerAccounts">Loading…</div></div><aside class="customer-voucher-drawer" id="customerVoucherDrawer"><div class="admin-module-head"><div><b>Customer Vouchers</b><small id="customerVoucherTitle">Link available vouchers to this customer account.</small></div><button type="button" onclick="closeCustomerVoucherDrawer()">&#215;</button></div><div class="admin-module-body"><div class="admin-card"><div id="customerVoucherList">Loading…</div><button class="admin-btn" id="saveCustomerVouchersButton" type="button" onclick="saveCustomerVoucherLinks(this)">Save Voucher Links</button><div class="admin-inline-message" id="customerVoucherMessage" role="status" aria-live="polite"></div></div></div></aside>
 <div class="admin-card"><h2>Account Activity History</h2><div class="admin-order-toolbar"><div class="admin-field" style="margin:0;flex:1"><label>SEARCH ACTIVITY</label><input id="acctActivitySearch" placeholder="Username, action or description" oninput="loadCustomerActivity()"></div><button class="admin-btn secondary" onclick="loadCustomerActivity()">Refresh</button></div><div id="customerActivity">Select an account above to view its history, or search all activity.</div></div>
 </div></aside>
 <aside class="admin-module-drawer" id="adminModule_storage"><div class="admin-module-head"><div><b>Storage & Reset</b><small>Manage R2 printing files and reset the printing system.</small></div><button onclick="closeAdminModule()">&#215;</button></div><div class="admin-module-body"><div class="admin-card"><h2>Reset Printing Data</h2><div class="admin-locked">This clears all printing orders, voucher usage records, and associated R2 files. Voucher definitions and the PM PRINT data are preserved.</div><div class="admin-field"><label>TYPE RESET TO CONFIRM</label><input id="resetPrintingConfirm" autocomplete="off" placeholder="RESET"></div><button class="admin-btn danger" onclick="resetPrintingData(this)">Reset Printing Data</button></div></div></aside>
@@ -2798,6 +2813,7 @@ window.adminSecret='';
       if(!button) return false;
       if(button.dataset.busy === '1') return true;
       button.dataset.busy='1';
+      window.__adminLastActionButton=button;
       button.dataset.originalText=button.textContent;
       button.disabled=true;
       button.textContent=busyText||'Saving…';
@@ -3151,7 +3167,20 @@ async function loadAdminDashboard(){
     window.customerVoucherCustomerId='';
     function closeCustomerVoucherDrawer(){const d=$('customerVoucherDrawer');if(d)d.classList.remove('show');}
     async function openCustomerVoucherDrawer(id){window.customerVoucherCustomerId=id;const d=$('customerVoucherDrawer');if(!d)return;d.classList.add('show');$('customerVoucherList').innerHTML='Loading…';try{const r=await adminCall('getCustomerVoucherLinks',{customerId:id});$('customerVoucherTitle').textContent='Link available vouchers to '+(r.customer?.name||'this customer')+'.';const rows=r.vouchers||[];if(!rows.length){$('customerVoucherList').innerHTML='<div class="admin-locked">No vouchers have been created yet.</div>';return;}$('customerVoucherList').innerHTML=rows.map(v=>'<label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;cursor:pointer"><input type="checkbox" class="customer-voucher-check" value="'+escapeAttr(v.code)+'" '+(v.linked?'checked':'')+' style="margin-top:3px"><span><b>'+escapeHtml(v.code)+'</b><br><small>'+escapeHtml(v.label||'Voucher')+(v.active?'':' · INACTIVE')+'</small></span></label>').join('');}catch(e){$('customerVoucherList').innerHTML='<div class="admin-locked">'+escapeHtml(e.message||'Unable to load customer vouchers.')+'</div>';}}
-    async function saveCustomerVoucherLinks(button){if(!window.customerVoucherCustomerId)return;if(adminButtonBusy(button,'Saving…'))return;const codes=[...document.querySelectorAll('.customer-voucher-check:checked')].map(x=>x.value);try{await adminCall('setCustomerVoucherLinks',{customerId:window.customerVoucherCustomerId,voucherCodes:codes});adminShowToast('Customer voucher links saved.');closeCustomerVoucherDrawer();}catch(e){adminShowToast(e.message||'Could not save voucher links.')}finally{adminButtonDone(button);}}
+    async function saveCustomerVoucherLinks(button){
+  if(!window.customerVoucherCustomerId)return;
+  if(adminButtonBusy(button,'Saving…'))return;
+  const box=$('customerVoucherMessage');
+  const codes=[...document.querySelectorAll('.customer-voucher-check:checked')].map(x=>x.value);
+  try{
+    const r=await adminCall('setCustomerVoucherLinks',{customerId:window.customerVoucherCustomerId,voucherCodes:codes});
+    if(box){box.textContent='Customer voucher links saved.';box.className='admin-inline-message show success';}
+  }catch(e){
+    if(box){box.textContent=e.message||'Could not save voucher links.';box.className='admin-inline-message show error';}
+  }finally{
+    adminButtonDone(button);
+  }
+}
     async function showCustomerActivity(id){window.accountActivityCustomerId=id;await loadCustomerActivity();}
     async function loadCustomerActivity(){try{const r=await adminCall('getCustomerActivity',{customerId:window.accountActivityCustomerId||'',search:$('acctActivitySearch')?.value||''});const box=$('customerActivity');if(!r.activity.length){box.innerHTML='<div class="admin-locked">No activity found.</div>';return;}box.innerHTML=r.activity.map(x=>`<div class="admin-order-details" style="padding:9px;margin-bottom:6px"><div><b>${escapeHtml(x.action)}</b><div style="font-size:9px;color:var(--muted)">${escapeHtml(x.username)} · ${escapeHtml(x.created_at)}</div><div style="font-size:10px;margin-top:4px">${escapeHtml(x.description)}</div></div></div>`).join('');}catch(e){adminShowToast(e.message||'Could not load activity history.')}}
     function safeId(v){return String(v).replace(/[^A-Za-z0-9_-]/g,'_');}
@@ -3160,8 +3189,36 @@ async function loadAdminDashboard(){
     function escapeJs(v){return String(v??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,' ');}
 
 
-function adminShowToast(t){var el=$('toast');if(!el)return;el.textContent=t;el.classList.add('show');clearTimeout(window.__adminToastTimer);window.__adminToastTimer=setTimeout(function(){el.classList.remove('show');},2600);}
-
+function adminShowToast(t){
+  const text=String(t||'');
+  const button=window.__adminLastActionButton;
+  let el=null;
+  if(button&&button.isConnected){
+    el=button.parentElement?.querySelector(':scope > .admin-inline-message');
+    if(!el){
+      el=document.createElement('div');
+      el.className='admin-inline-message';
+      el.setAttribute('role','status');
+      el.setAttribute('aria-live','polite');
+      button.insertAdjacentElement('afterend',el);
+    }
+  }
+  if(!el){
+    el=$('adminInlineGlobalMessage');
+    if(!el){
+      el=document.createElement('div');
+      el.id='adminInlineGlobalMessage';
+      el.className='admin-inline-message';
+      el.style.margin='10px 0';
+      const target=document.querySelector('#adminDashboard')||document.body;
+      target.prepend(el);
+    }
+  }
+  el.textContent=text;
+  el.classList.add('show');
+  el.classList.toggle('error',/could not|unable|invalid|failed|error|must|required|not found|rejected|inactive/i.test(text));
+  el.classList.toggle('success',!el.classList.contains('error'));
+}
 
 
 
