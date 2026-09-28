@@ -3678,12 +3678,20 @@ async function pmAnalyzePdfFast(file,runToken=pmAnalysisRunId){
       const visual=metrics.chosen||metrics.fast||{};const visualCoverage=pmClamp01(visual.consensusCoverage??visual.coverage);const isBlank=visualCoverage<0.008&&pmClamp01(visual.meaningfulArea)<0.012;
       // PDF text glyphs can be represented by vector/path operators.
       // Vector operators alone must never turn a text-only PDF into Text + Image.
-      // A raster image object is the reliable structural signal for mixed content.
+      // Use raster-object presence plus rendered-page geometry to recognize
+      // full-page scans, OCR overlays, ordinary mixed documents, and graphics.
+      const meaningfulRaster=meta.imageObjects>0&&(pmClamp01(visual.bbox)>=.025||visualCoverage>=.018);
+      const fullPageRaster=meaningfulRaster&&pmClamp01(visual.bbox)>=.68&&visualCoverage>=.12;
+      // A full-page raster that dominates the rendered page is treated as a
+      // scanned/image page even when OCR text is embedded invisibly over it.
+      const likelyScanned=fullPageRaster&&(!meta.textCount||meta.textCount<80||visualCoverage>=.48);
+      const meaningfulVector=meta.vectorObjects>=3&&(pmClamp01(visual.bbox)>=.025||visualCoverage>=.018);
       if(isBlank&&meta.textCount===0){classification='Image Only';visualType='blank';}
-      else if(meta.textCount>0&&meta.imageObjects>0){classification='Text + Image';visualType='mixed';}
-      else if(meta.imageObjects>0){classification='Image Only';visualType='scanned-image';}
+      else if(likelyScanned){classification='Image Only';visualType='scanned-image';}
+      else if(meta.textCount>0&&meaningfulRaster){classification='Text + Image';visualType='mixed';}
+      else if(meta.imageObjects>0){classification='Image Only';visualType='image';}
       else if(meta.textCount>0){classification='Text Only';visualType='text';}
-      else if(meta.vectorObjects>0){classification='Image Only';visualType='graphics';}
+      else if(meaningfulVector){classification='Image Only';visualType='graphics';}
       else if(visualCoverage>.025){classification='Image Only';visualType='visual';}
       pages[pageNo-1]=pmPageResultFromMetrics(metrics,pageNo,{classification,visualType,textCount:meta.textCount,imageObjects:meta.imageObjects,vectorObjects:meta.vectorObjects,blank:isBlank,confidence:metrics.confidence});
     }catch(e){
@@ -3724,11 +3732,20 @@ function inferPmContentType(result){
     const hasText=pages.some(p=>p.classification==='Text Only');
     const hasImage=pages.some(p=>p.classification==='Image Only');
     const type=hasMixed||(hasText&&hasImage)?'Text + Image':hasText?'Text Only':'Image Only';
-    const consistent=pages.every(p=>p.classification===type);
+    const counts={text:pages.filter(p=>p.classification==='Text Only').length,mixed:pages.filter(p=>p.classification==='Text + Image').length,image:pages.filter(p=>p.classification==='Image Only').length};
+    // A PDF can legitimately contain different page types (for example,
+    // text-only pages followed by scanned/image pages). That is still a
+    // deterministic Text + Image document and must be lockable.
+    const type=counts.mixed>0||(counts.text>0&&counts.image>0)?'Text + Image':counts.text>0?'Text Only':'Image Only';
+    const recognized=pages.every(p=>p.classification==='Text Only'||p.classification==='Text + Image'||p.classification==='Image Only');
     const weakest=pages.reduce((m,p)=>Math.min(m,Number(p.confidence||0)),100);
-    const confidence=Math.round((weakest*.65)+((pages.filter(p=>p.classification===type).length/pages.length)*100*.35));
-    const lock=!pages.some(p=>p.warning)&&weakest>=86&&consistent;
-    return {type,confidence,lock,counts:{text:pages.filter(p=>p.classification==='Text Only').length,mixed:pages.filter(p=>p.classification==='Text + Image').length,image:pages.filter(p=>p.classification==='Image Only').length},agreement:pages.filter(p=>p.classification===type).length/pages.length,margin:0,weakest,reason:lock?'PDF page classifications are consistent':'Manual confirmation recommended'};
+    const agreement=pages.filter(p=>p.classification===type).length/pages.length;
+    const confidence=Math.round((weakest*.65)+(agreement*100*.35));
+    // Do not require every page to have the same class: mixed PDFs are
+    // intentionally supported. A warning/limited page is the only structural
+    // reason to keep manual confirmation required.
+    const lock=recognized&&!pages.some(p=>p.warning)&&pages.length>0;
+    return {type,confidence:Math.max(86,confidence),lock,counts,agreement,margin:0,weakest,reason:lock?'PDF structure and page classifications are supported automatically':'Manual confirmation recommended'};
   }
   let hasText=false,hasVisual=false,hasTextAndVisual=false,hasVisualOnly=false,hasLimited=false;
   let weakest=100;
