@@ -470,7 +470,7 @@ async function handle(request, env){
     }
     if(action==='createOrder')return json(await createOrder(env,data,origin,apiPrefix,request));
 
-    const adminActions=['getAdminDashboard','getAdminOrders','updateOrderStatus','updateOrdersStatusBulk','setPrintingAvailability','setPickupLocation','setServiceMessage','getPricing','savePricing','getPmInkPricing','savePmInkPricing','saveInkOverride','getLocations','saveLocation','deleteLocation','createVoucher','listVouchers','setVoucherActive','resetPrintingData','clearPrintingStorage','getAccountSettings','setAccountManagement','getCustomerAccounts','createCustomerAccount','updateCustomerAccount','deleteCustomerAccount','resetCustomerPassword','getCustomerActivity'];
+    const adminActions=['getAdminDashboard','getAdminOrders','updateOrderStatus','updateOrdersStatusBulk','setPrintingAvailability','setPickupLocation','setServiceMessage','getPricing','savePricing','getPmInkPricing','savePmInkPricing','saveInkOverride','getLocations','saveLocation','deleteLocation','createVoucher','listVouchers','setVoucherActive','resetPrintingData','clearPrintingStorage','getAccountSettings','setAccountManagement','getCustomerAccounts','createCustomerAccount','updateCustomerAccount','deleteCustomerAccount','resetCustomerPassword','getCustomerActivity','getCustomerVoucherAssignments','setCustomerVoucher'];
     if(adminActions.includes(action)){
       if(action==='setServiceMessage'){
         const user=await requireAdmin(env,request);const message=clean(data.message).slice(0,500);
