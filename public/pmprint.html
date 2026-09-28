@@ -3337,19 +3337,21 @@ window.addEventListener('pageshow',event=>{
       result=data;
     }catch(e){
       getError=e;
-      try{ result=await apiGet('getLocations'); }
-      catch(fallbackError){
+      try{
+        result=await apiGet('getLocations');
+      }catch(fallbackError){
         postError=fallbackError;
         throw new Error('Delivery locations failed to load. GET error: '+(getError?.message||getError)+' | POST fallback error: '+(postError?.message||postError));
       }
     }
     const rows=Array.isArray(result?.locations)?result.locations:[];
+    const invalidRows=rows.filter(x=>!x||x.active===false||!String(x.id||'').trim()||!String(x.name||'').trim());
     window.deliveryLocations=rows.filter(x=>x&&x.active!==false&&String(x.id||'').trim()&&String(x.name||'').trim());
     if(!window.deliveryLocations.length){
       select.innerHTML='<option value="">No delivery locations available</option>';
     }else{
       select.innerHTML='<option value="">Select location</option>'+window.deliveryLocations.map(x=>'<option value="'+escapeHtml(String(x.id))+'">'+escapeHtml(String(x.name))+' — '+pmWholeMoney(x.fee)+'</option>').join('');
-    }
+        }
     updateDeliveryNote();
     updatePrice();
     updateSubmitState();
@@ -3357,9 +3359,6 @@ window.addEventListener('pageshow',event=>{
     window.deliveryLocations=[];
     select.innerHTML='<option value="">Delivery locations unavailable</option>';
     console.error('PM PRINT delivery-location load error:',{error:e,getError,postError,url:'/api/pmprint/getLocations',page:location.href});
-    updateDeliveryNote();
-    updatePrice();
-    updateSubmitState();
   }
 }
 
