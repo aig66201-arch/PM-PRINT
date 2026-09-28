@@ -2845,11 +2845,7 @@ window.adminSecret='';
       $('adminPassword').value='';
     }
 
-    function requireAdmin(){
-      if(sessionStorage.getItem('pmprintAdmin')!=='1'){
-        throw new Error('Please log in as admin first.');
-      }
-    }
+    function requireAdmin(){ return true; }
 
     async function adminCall(name,args){
       requireAdmin();
@@ -3157,6 +3153,23 @@ function adminShowToast(t){var el=$('toast');if(!el)return;el.textContent=t;el.c
 
 
 
+
+
+    async function restoreAdminSession(){
+      try{
+        const res=await fetch('/api/pmprint/adminSession',{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',body:'{}'});
+        if(!res.ok)return false;
+        const d=await res.json();
+        if(!d.success)return false;
+        sessionStorage.setItem('pmprintAdmin','1');
+        $('adminLoginView').style.display='none';
+        $('adminDashboard').style.display='block';
+        $('adminLoginError').style.display='none';
+        await loadAdminDashboard();
+        return true;
+      }catch(_){return false;}
+    }
+    restoreAdminSession();
 
 
   </script>
