@@ -281,13 +281,14 @@ async function listVouchers(env){const {results}=await env.DB.prepare('SELECT * 
 
 async function handle(request, env){
   const incomingUrl = new URL(request.url);
-  const isPmPrint = incomingUrl.pathname === '/pmprint' || incomingUrl.pathname === '/pmprint.html' || incomingUrl.pathname === '/api/pmprint' || incomingUrl.pathname.startsWith('/api/pmprint/');
+  const isPmPrint = incomingUrl.pathname === '/' || incomingUrl.pathname === '/pmprint' || incomingUrl.pathname === '/pmprint.html' || incomingUrl.pathname === '/api/pmprint' || incomingUrl.pathname.startsWith('/api/pmprint/');
   if(!isPmPrint) return new Response('Not Found',{status:404});
+  if(incomingUrl.pathname === '/') return env.ASSETS.fetch(new Request(new URL('/pmprint.html',request.url),request));
   if(incomingUrl.pathname === '/pmprint') return Response.redirect(new URL('/pmprint.html',incomingUrl),302);
   if(incomingUrl.pathname === '/pmprint.html') return env.ASSETS.fetch(request);
-  if(!env.PM_DB) return err('PM PRINT database binding is not configured.',503);
+  if(!env.DB) return err('PM PRINT database binding is not configured.',503);
   if(!env.PRINT_FILES) return err('PM PRINT R2 storage binding is not configured.',503);
-  env={...env,DB:env.PM_DB,API_PREFIX:'/api/pmprint',ADMIN_COOKIE:'pmprint_admin',PRINT_PREFIX:'pmprinting/',PM_PRINT:true};
+  env={...env,API_PREFIX:'/api/pmprint',ADMIN_COOKIE:'pmprint_admin',PRINT_PREFIX:'pmprinting/',PM_PRINT:true};
   try{await ensurePmSchema(env);}catch(e){return err(e.message||'PM PRINT database schema is unavailable.',503);}
   const url=new URL(request.url),origin=url.origin,apiPrefix='/api/pmprint';
 
