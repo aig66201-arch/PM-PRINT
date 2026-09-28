@@ -2701,6 +2701,8 @@
 @media print{body>*:not(#claimCard){display:none !important}#claimCard{display:block !important;width:80mm !important;max-width:80mm !important;margin:0 auto !important;box-shadow:none !important;border:0 !important}.thermal-receipt{padding:5mm 3mm !important;font-size:10px !important}.receipt-brand{font-size:22px}.receipt-school{font-size:12px}.receipt-title{font-size:15px}.receipt-number{font-size:11px}.receipt-items-head,.receipt-row{grid-template-columns:22px minmax(0,1fr) 42px;gap:3px}.receipt-totals{margin-left:35%}.receipt-totals>div{grid-template-columns:minmax(0,1fr) 42px;gap:3px}.receipt-total{font-size:15px}.receipt-details>div{grid-template-columns:40% minmax(0,60%);gap:3px}.receipt-thanks{font-size:8px}.receipt-barcode{height:35px}.receipt-actions{display:none !important}}
 
 
+
+.account-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;display:none;align-items:center;justify-content:center;padding:14px}.account-modal.show{display:flex}.account-card{width:min(430px,100%);background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.25);padding:20px}.account-card h2{margin:0 0 5px;color:var(--g2)}.account-card p{font-size:11px;color:var(--muted);line-height:1.5}.account-card .field{margin:10px 0}.account-card-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.account-profile{padding:12px;border:1px solid var(--line);border-radius:12px;background:#fbfdfb;margin-bottom:10px}.account-profile b{display:block;font-size:15px}.account-profile small{color:var(--muted)}.account-hidden{display:none!important}
 </style>
 </head>
 
@@ -2739,9 +2741,12 @@
     <div class="drawer-menu">
       <button onclick="closeDrawer();backToPrintingOrder()"><span class="menu-icon">&#128424;</span><span>Printing Order</span></button>
       <button onclick="closeDrawer();scrollToStatus()"><span class="menu-icon">&#128203;</span><span>Check Order Status</span></button>
+      <button id="customerAccountMenu" class="account-hidden" onclick="closeDrawer();openCustomerAccount()"><span class="menu-icon">&#128100;</span><span id="customerAccountMenuText">Login</span></button>
     </div>
     <div class="drawer-footer">PM PRINT</div>
   </aside>
+
+  <div class="account-modal" id="accountModal" onclick="if(event.target===this)closeCustomerAccount()"><div class="account-card" id="accountCard"><div id="accountLoginView"><h2>PM PRINT Account</h2><p>Account Management is enabled. Sign in using the account created by the PM PRINT administrator.</p><div class="field"><label>USERNAME</label><input id="customerLoginUsername" autocomplete="username" placeholder="Username"></div><div class="field"><label>PASSWORD</label><input id="customerLoginPassword" type="password" autocomplete="current-password" placeholder="Password"></div><label style="font-size:11px;display:flex;gap:7px;align-items:center"><input id="customerRemember" type="checkbox"> Remember me for 30 days</label><div class="account-card-actions"><button class="submit" onclick="customerLogin(this)">Login</button><button class="submit" style="background:#fff;color:var(--g2);border:1px solid var(--line)" onclick="closeCustomerAccount()">Close</button></div><div id="customerLoginError" class="service-closed-banner" style="display:none;margin-top:10px"></div></div><div id="accountProfileView" class="account-hidden"><h2>My Account</h2><div id="customerProfileBox" class="account-profile"></div><div class="account-card-actions"><button class="submit" onclick="changeCustomerPassword()">Change Password</button><button class="submit" style="background:#fff;color:var(--g2);border:1px solid var(--line)" onclick="customerLogout()">Logout</button></div><button class="submit" style="margin-top:8px;background:#fff;color:var(--g2);border:1px solid var(--line)" onclick="closeCustomerAccount()">Close</button></div></div></div>
 
   <main class="wrap user-page" id="userPage">
     <div class="title">
@@ -2862,7 +2867,7 @@
 
         <div class="card" style="margin-top:18px">
           <h2>3. Campus Delivery</h2>
-          <div class="field"><label>STUDENT NAME</label><input id="student" required placeholder="Your name"></div>
+          <div class="field"><label>STUDENT NAME</label><input id="student" required placeholder="Your name"><small id="studentAccountNote" style="display:none;color:var(--muted)">This name is taken from your PM PRINT account.</small></div>
           <div class="field"><label>CONTACT</label><input id="contact" required placeholder="Messenger name / phone">
           </div>
 
@@ -3297,7 +3302,8 @@ function getVoucherDeviceId(){
 }
                                                                                                                                                                                                                                                                                            
 document.addEventListener('DOMContentLoaded',()=>{
-  loadCustomerLocations();
+  loadAccountState();
+loadCustomerLocations();
   // Always start a fresh session with no attached file and no estimated price.
   resetFileAfterSuccessfulOrder();
 });
@@ -4174,6 +4180,8 @@ function resetFileAfterSuccessfulOrder(){
 window.resetFileAfterSuccessfulOrder=resetFileAfterSuccessfulOrder;
 
 async function placeOrder(){
+  if(window.pmAccountManagement){if(!window.pmCustomer){openCustomerAccount();showToast('Please log in to your PM PRINT account before placing an order.');return;}const profile=window.pmCustomer;$('student').value=profile.name||'';if(profile.phone)$('contact').value=profile.phone;}
+
   const submit=$('submit');if(submit.dataset.busy)return;if(!selectedFile){showToast('Please select a file first.');return;}if(!detectedReady){showToast('Please wait for the document analysis to finish.');return;}
   const studentName=$('student').value.trim(),contact=$('contact').value.trim(),fulfillment=document.querySelector('input[name="fulfillment"]:checked')?.value||'';
   if(!studentName){showToast('Please enter your student name.');$('student').focus();return;}if(!contact){showToast('Please enter your contact information.');$('contact').focus();return;}if(!fulfillment){showToast('Please select Pickup or Delivery.');return;}if(fulfillment==='Delivery'&&!$('location').value){showToast('Please select a delivery location.');return;}
