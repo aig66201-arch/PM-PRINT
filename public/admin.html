@@ -2783,7 +2783,6 @@ function pmOrderInkUsage(order){if(!order)return 0;const override=Number(order.A
 function getPmOrderInkPages(order){const v=order?.InkAnalysis;return Array.isArray(v)?v:(Array.isArray(v?.pages)?v.pages:[]);}
 function populatePmInkPricing(p){if($('pm_ink_black'))$('pm_ink_black').value=p?.blackInkRate??'';if($('pm_ink_color'))$('pm_ink_color').value=p?.colorInkRate??'';if($('pm_ink_min'))$('pm_ink_min').value=p?.minimumInkCharge??'';if($('pm_ink_threshold'))$('pm_ink_threshold').value=p?.coverageThreshold??'';}
 async function loadCustomerLocations(){return;}
-<script>
 
 window.adminSecret='';
     function adminButtonBusy(button, busyText){
