@@ -475,6 +475,7 @@ async function handle(request, env){
 
 
     if(action==='getCustomerVoucherLinks'){
+      await requireAdmin(env,request);
       const cid=clean(data.customerId);if(!cid)throw new Error('Customer account is required.');
       const customer=await env.DB.prepare('SELECT id,username,name FROM pm_customers WHERE id=?').bind(cid).first();if(!customer)throw new Error('Customer account not found.');
       const {results}=await env.DB.prepare(`SELECT v.code,v.type,v.value,v.min_spend,v.max_discount,v.max_shipping_discount,v.start_at,v.end_at,v.active,CASE WHEN cv.customer_id IS NULL THEN 0 ELSE 1 END linked FROM vouchers v LEFT JOIN pm_customer_vouchers cv ON cv.voucher_code=v.code AND cv.customer_id=? WHERE v.active=1 ORDER BY v.created_at DESC`).bind(cid).all();
@@ -489,7 +490,7 @@ async function handle(request, env){
       await env.DB.prepare('DELETE FROM pm_customer_vouchers WHERE customer_id=?').bind(cid).run();
       for(const code of valid)await env.DB.prepare('INSERT INTO pm_customer_vouchers(customer_id,voucher_code,assigned_at,created_at,updated_at) VALUES(?,?,?,?,?)').bind(cid,code,now(),now(),now()).run();
       await accountActivity(env,customer,'VOUCHERS_UPDATED',`Administrator linked ${valid.length} voucher(s) to this account.`,request);await log(env,admin.username,'CUSTOMER_VOUCHERS_UPDATED',`Updated vouchers for customer ${customer.username}.`);
-      return {success:true,customerId:cid,linked:valid};
+      return json({success:true,customerId:cid,linked:valid});
     }
     if(action==='adminSession'){const session=await requireAdmin(env,request);return json({success:true,authenticated:true,username:session.username||''});}
     if(action==='adminLogin'){
