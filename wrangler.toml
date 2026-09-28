@@ -7,15 +7,15 @@ directory = "./public"
 binding = "ASSETS"
 
 [[d1_databases]]
-binding = "PM_DB"
-database_name = "pm-print"
-database_id = "d0673f83-6822-4956-8a42-382826a674d0"
+binding = "DB"
+database_name = "pmprint-db"
+database_id = "e7975f99-c0cb-4667-85b9-f85673b96a17"
 migrations_dir = "migrations"
 migrations_table = "d1_migrations_pm"
 
 [[r2_buckets]]
 binding = "PRINT_FILES"
-bucket_name = "bsais-printing-files"
+bucket_name = "pm-print"
 
 [vars]
 PM_APP_NAME = "PM PRINT"
