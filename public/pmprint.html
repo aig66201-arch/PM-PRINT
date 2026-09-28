@@ -3644,106 +3644,116 @@ async function pmAnalyzeImageFast(file){
     const w=source.naturalWidth||source.width,h=source.naturalHeight||source.height;const rendered=await pmRenderImageToPixels(source,w,h,1);const metrics=await pmAnalyzePixelPage(rendered.pixels.data,rendered.width,rendered.height,Number(window.pmInkPricing?.coverageThreshold||5)/100,1,1);const result={type:'image',pages:1,pageResults:[pmPageResultFromMetrics(metrics,1,{classification:'Image Only',visualType:'image',confidence:metrics.confidence})],confidence:detectorConfidenceLabel(metrics.confidence),timing:{}};PM_ANALYSIS_CACHE.set(hash,result);return result;
   }finally{if(source&&typeof source.close==='function')source.close();}
 }
-async async function pmAnalyzePdfFast(file,runToken=pmAnalysisRunId){
+async function pmAnalyzePdfFast(file,runToken=pmAnalysisRunId){
   if(!window.pdfjsLib){
-    await new Promise((resolve,reject)=>{
-      const t=setTimeout(()=>reject(new Error('PDF analyzer timed out while loading.')),15000);
-      window.addEventListener('pdfjsready',()=>{clearTimeout(t);resolve();},{once:true});
-    });
+    await new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error('PDF analyzer timed out while loading.')),15000);window.addEventListener('pdfjsready',()=>{clearTimeout(t);resolve();},{once:true});});
   }
-  const run=runToken;
-  const cacheKey='pdf:'+pmFastFileKey(file);
-  const cached=PM_ANALYSIS_CACHE.get(cacheKey);
-  if(cached)return {...cached,fromCache:true};
+  const hash=await hashFile(file);const cached=PM_ANALYSIS_CACHE.get('pdf:'+hash);if(cached)return {...cached,fromCache:true};
   const pdf=await window.pdfjsLib.getDocument({data:await file.arrayBuffer(),useWorkerFetch:true,isEvalSupported:true,stopAtErrors:false}).promise;
-  const total=pdf.numPages;
-  const pages=new Array(total);
-  const queue=[...Array(total)].map((_,i)=>i+1);
+  const total=pdf.numPages;const pages=new Array(total);const queue=[...Array(total)].map((_,i)=>i+1);
   const mobile=innerWidth<=768||/Android|iPhone|iPad/i.test(navigator.userAgent||'');
   const concurrency=mobile?1:Math.max(1,Math.min(pmWorkerCount(total),2));
-  let completed=0;
-  function ensureCurrent(){if(run!==pmAnalysisRunId){const e=new Error('Analysis was superseded by another file.');e.code='ANALYSIS_SUPERSEDED';throw e;}}
+  function ensureCurrent(){if(runToken!==pmAnalysisRunId){const e=new Error('Analysis was superseded by another file.');e.code='ANALYSIS_SUPERSEDED';throw e;}}
   async function inspectPage(page){
     let textCount=0,textChars=0,imageObjects=0,vectorObjects=0;
-    const textPromise=page.getTextContent({disableCombineTextItems:false}).then(tc=>{for(const x of tc.items||[]){const str=String(x.str||'').trim();if(str){textCount++;textChars+=str.length;}}}).catch(()=>{});
-    const opPromise=page.getOperatorList().then(op=>{
-      const fn=window.pdfjsLib.OPS||{};
-      const imageFns=new Set([fn.paintImageXObject,fn.paintInlineImageXObject,fn.paintInlineImageXObjectGroup].filter(v=>v!==undefined));
+    try{
+      const tc=await page.getTextContent({disableCombineTextItems:false});
+      for(const x of tc.items||[]){const str=String(x.str||'').trim();if(str){textCount++;textChars+=str.length;}}
+    }catch(_){ }
+    try{
+      const op=await page.getOperatorList();const fn=window.pdfjsLib.OPS||{};
+      const imageFns=new Set([fn.paintImageMaskXObject,fn.paintImageMaskXObjectRepeat,fn.paintImageXObject,fn.paintImageXObjectRepeat,fn.paintInlineImageXObject,fn.paintInlineImageXObjectGroup,fn.paintJpegXObject].filter(v=>v!==undefined));
       const vectorFns=new Set([fn.constructPath,fn.moveTo,fn.lineTo,fn.rectangle,fn.stroke,fn.fill,fn.eoFill,fn.shadingFill].filter(v=>v!==undefined));
       for(const f of op.fnArray||[]){if(imageFns.has(f))imageObjects++;else if(vectorFns.has(f))vectorObjects++;}
-    }).catch(()=>{});
-    await Promise.all([textPromise,opPromise]);
+    }catch(_){ }
     return {textCount,textChars,imageObjects,vectorObjects};
   }
-  async function task(){
-    while(queue.length){
+  async function task(){while(queue.length){ensureCurrent();const pageNo=queue.shift();let page=null;try{
+    page=await pdf.getPage(pageNo);ensureCurrent();detectorSetStatus(`Analyzing PDF · page ${pageNo} of ${total}`);
+    const meta=await inspectPage(page);ensureCurrent();
+    let classification='Text Only',visualType='text';
+    const hasText=meta.textCount>0&&meta.textChars>=2;
+    // Tiny image masks/logos must not turn a text document into Text + Image.
+    const hasVisualObject=meta.imageObjects>0||meta.vectorObjects>=3;
+    let metrics={confidence:96,chosen:{coverage:0,consensusCoverage:0,meaningfulArea:0,inkArea:0,blackArea:0,colorArea:0,density:0,distribution:0,bbox:0,edgeDensity:0}};
+    let visual=metrics.chosen;
+    if(hasVisualObject||!hasText){
+      const viewport=page.getViewport({scale:1});
+      const dims=pmAnalysisDimensions(viewport.width,viewport.height,total);
+      const canvas=document.createElement('canvas');canvas.width=dims.width;canvas.height=dims.height;
+      const ctx=canvas.getContext('2d',{willReadFrequently:true,alpha:false});ctx.fillStyle='#fff';ctx.fillRect(0,0,dims.width,dims.height);
+      const scale=dims.width/viewport.width;const v=page.getViewport({scale});
+      await Promise.race([page.render({canvasContext:ctx,viewport:v}).promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Page render timed out.')),15000))]);
       ensureCurrent();
-      const pageNo=queue.shift();
-      let page=null;
-      try{
-        page=await pdf.getPage(pageNo);ensureCurrent();
-        detectorSetStatus(`Analyzing document · page ${pageNo} of ${total}`);
-        const viewport=page.getViewport({scale:1});
-        const dims=pmAnalysisDimensions(viewport.width,viewport.height,total);
-        const canvas=document.createElement('canvas');canvas.width=dims.width;canvas.height=dims.height;
-        const ctx=canvas.getContext('2d',{willReadFrequently:true,alpha:false});ctx.fillStyle='#fff';ctx.fillRect(0,0,dims.width,dims.height);
-        // Structural inspection and rendering run together to reduce PDF analysis latency.
-        const metaPromise=inspectPage(page);
-        const scale=dims.width/viewport.width;const v=page.getViewport({scale});
-        const renderPromise=page.render({canvasContext:ctx,viewport:v}).promise;
-        const [meta]=await Promise.all([metaPromise,Promise.race([renderPromise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Page render timed out.')),15000))])]);
-        ensureCurrent();
-        const pixels=ctx.getImageData(0,0,dims.width,dims.height);canvas.width=canvas.height=1;
-        const metrics=await pmAnalyzePixelPage(pixels.data,dims.width,dims.height,Number(window.pmInkPricing?.coverageThreshold||5)/100,pageNo,total);ensureCurrent();
-        const visual=metrics.chosen||metrics.fast||{};
-        const visualCoverage=pmClamp01(visual.consensusCoverage??visual.coverage);
-        const inkArea=pmClamp01(visual.inkArea??visual.meaningfulArea??visualCoverage);
-        const bbox=pmClamp01(visual.bbox);
-        const isBlank=visualCoverage<0.008&&pmClamp01(visual.meaningfulArea)<0.012;
-        const hasRaster=meta.imageObjects>0;
-        const hasText=meta.textCount>0;
-        // A full-page raster is treated as a scanned page even when OCR text is embedded.
-        const strongFullPageRaster=hasRaster&&bbox>=0.68;
-        const likelyScanned=strongFullPageRaster&&(meta.textChars===0||(hasText&&visualCoverage<0.60&&inkArea<0.60));
-        // A few vector paths may be borders/rules. Require meaningful vector evidence.
-        const meaningfulVector=meta.vectorObjects>=3;
-        let classification='Text Only',visualType='text';
-        if(isBlank){classification='Text Only';visualType='blank';}
-        else if(likelyScanned){classification='Image Only';visualType='scanned-image';}
-        else if(hasText&&hasRaster){classification='Text + Image';visualType='mixed';}
-        else if(hasRaster){classification='Image Only';visualType='image';}
-        else if(hasText&&meaningfulVector){classification='Text + Image';visualType='vector-mixed';}
-        else if(!hasText&&meaningfulVector){classification='Image Only';visualType='graphics';}
-        else if(!hasText&&visualCoverage>.025){classification='Image Only';visualType='visual';}
-        const analysisMethod=likelyScanned?'PDF-SCANNED-RASTER':(hasText&&hasRaster?'PDF-TEXT+RASTER':(hasText&&meaningfulVector?'PDF-TEXT+VECTOR':'PDF-TEXT/STRUCTURE'));
-        pages[pageNo-1]=pmPageResultFromMetrics(metrics,pageNo,{classification,visualType,textCount:meta.textCount,textChars:meta.textChars,imageObjects:meta.imageObjects,vectorObjects:meta.vectorObjects,blank:isBlank,scanned:likelyScanned,confidence:metrics.confidence,analysisMethod});
-      }catch(e){
-        if(e?.code==='ANALYSIS_SUPERSEDED')throw e;
-        let fallback={textCount:0,textChars:0,imageObjects:0,vectorObjects:0};
-        try{if(page)fallback=await inspectPage(page);}catch(_){ }
-        const classification=fallback.imageObjects>0?(fallback.textCount>0?'Text + Image':'Image Only'):(fallback.textCount>0?'Text Only':'Image Only');
-        pages[pageNo-1]={page_number:pageNo,classification,ocr:false,color:false,ink:0,blackCoverage:0,colorCoverage:0,cyanCoverage:0,magentaCoverage:0,yellowCoverage:0,visualDensity:0,coverageDistribution:0,bboxCoverage:0,edgeDensity:0,confidence:35,analysisMethod:'STRUCTURAL-FALLBACK',visualType:fallback.imageObjects?'image':fallback.textCount?'text':'visual',textCount:fallback.textCount,textChars:fallback.textChars,imageObjects:fallback.imageObjects,vectorObjects:fallback.vectorObjects,blank:false,scanned:false,warning:'Visual analysis unavailable for this page'};
-        console.warn(`PMPRINT PDF page ${pageNo} visual analysis limited:`,e);
-      }finally{
-        try{page?.cleanup();}catch(_){ }
-        completed++;const ready=pages.filter(Boolean);
-        detectorSetStats(total,`${completed}/${total}`,'','','','','',detectorConfidenceLabel(Math.min(...ready.map(x=>x.confidence||35))));
-      }
+      const pixels=ctx.getImageData(0,0,dims.width,dims.height);canvas.width=canvas.height=1;
+      metrics=await pmAnalyzePixelPage(pixels.data,dims.width,dims.height,Number(window.pmInkPricing?.coverageThreshold||5)/100,pageNo,total);ensureCurrent();
+      visual=metrics.chosen||metrics.fast||{};
     }
+    const visualCoverage=pmClamp01(visual.consensusCoverage??visual.coverage);
+    const inkArea=pmClamp01(visual.inkArea??visual.meaningfulArea??visualCoverage);
+    const bbox=pmClamp01(visual.bbox);
+    const meaningfulRaster=meta.imageObjects>0&&(bbox>=.025||visualCoverage>=.018);
+    const fullPageRaster=meaningfulRaster&&bbox>=.68&&visualCoverage>=.12;
+    const likelyScanned=fullPageRaster&&(!hasText||meta.textChars<80||visualCoverage>=.48);
+    const meaningfulVector=meta.vectorObjects>=3&&(bbox>=.025||visualCoverage>=.018);
+    const blank=visualCoverage<.008&&inkArea<.012&&!hasText;
+    if(likelyScanned){classification='Image Only';visualType='scanned-image';}
+    else if(blank){classification='Image Only';visualType='blank';}
+    else if(hasText&&meaningfulRaster){classification='Text + Image';visualType='mixed';}
+    else if(hasText&&meaningfulVector){classification='Text + Image';visualType='vector-mixed';}
+    else if(meaningfulRaster||meaningfulVector){classification='Image Only';visualType=meaningfulRaster?'image':'graphics';}
+    else if(hasText){classification='Text Only';visualType='text';}
+    else if(visualCoverage>.025){classification='Image Only';visualType='visual';}
+    pages[pageNo-1]=pmPageResultFromMetrics(metrics,pageNo,{classification,visualType,textCount:meta.textCount,imageObjects:meta.imageObjects,vectorObjects:meta.vectorObjects,blank,confidence:likelyScanned?Math.max(82,metrics.confidence||82):metrics.confidence});
+    pages[pageNo-1].textChars=meta.textChars;pages[pageNo-1].scanned=likelyScanned;
+  }catch(e){
+    if(e?.code==='ANALYSIS_SUPERSEDED')throw e;
+    let fallback={textCount:0,textChars:0,imageObjects:0,vectorObjects:0};try{if(page)fallback=await inspectPage(page);}catch(_){ }
+    const classification=fallback.imageObjects>0?(fallback.textCount>0?'Text + Image':'Image Only'):(fallback.textCount>0?'Text Only':'Image Only');
+    pages[pageNo-1]={page_number:pageNo,classification,ocr:false,color:false,ink:0,blackCoverage:0,colorCoverage:0,cyanCoverage:0,magentaCoverage:0,yellowCoverage:0,visualDensity:0,coverageDistribution:0,bboxCoverage:0,edgeDensity:0,confidence:35,analysisMethod:'STRUCTURAL-FALLBACK',visualType:'limited',textCount:fallback.textCount,textChars:fallback.textChars,imageObjects:fallback.imageObjects,vectorObjects:fallback.vectorObjects,blank:false,scanned:false,warning:'Visual analysis unavailable for this page'};
+    console.warn(`PMPRINT PDF page ${pageNo} visual analysis limited:`,e);
+  }finally{try{page?.cleanup();}catch(_){}detectorSetStats(total,`${pages.filter(Boolean).length}/${total}`,'','','','','',detectorConfidenceLabel(Math.min(...pages.filter(Boolean).map(x=>x.confidence||35))));}}
   }
   await Promise.all(Array.from({length:concurrency},task));ensureCurrent();
   const confidence=Math.round(pages.reduce((a,p)=>a+Number(p?.confidence||0),0)/Math.max(1,pages.length));
   const scannedPages=pages.filter(p=>p?.scanned||p?.visualType==='scanned-image').map(p=>p.page_number);
   const result={type:'pdf',pages:total,pageResults:pages,ocrPages:0,colorPages:pages.filter(p=>p?.color).length,scannedPages,confidence,timing:{},limitedPages:pages.filter(p=>p?.warning).map(p=>p.page_number)};
-  try{await pdf.cleanup();}catch(_){ }try{await pdf.destroy();}catch(_){ }
-  PM_ANALYSIS_CACHE.set(cacheKey,result);return result;
+  try{await pdf.cleanup();}catch(_){}try{await pdf.destroy();}catch(_){}
+  if(scannedPages.length&&scannedPages.length<=8){try{await pmOcrScannedPdfPages(file,result,runToken);}catch(_){}}
+  PM_ANALYSIS_CACHE.set('pdf:'+hash,result);return result;
 }
+
+async function pmOcrScannedPdfPages(file,result,runToken){
+  const pages=(result?.pageResults||[]).filter(p=>p&&p.visualType==='scanned-image'&&Number(p.textCount||0)===0);
+  if(!pages.length)return result;
+  try{await ensureTesseract();}catch(_){return result;}
+  if(!window.Tesseract?.createWorker)return result;
+  let worker=null;
+  try{
+    worker=await window.Tesseract.createWorker('eng');
+    const pdf=await window.pdfjsLib.getDocument({data:await file.arrayBuffer(),useWorkerFetch:true,isEvalSupported:true,stopAtErrors:false}).promise;
+    for(const p of pages){
+      if(runToken!==pmAnalysisRunId)break;
+      try{
+        const page=await pdf.getPage(p.page_number);const viewport=page.getViewport({scale:1.15});
+        const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(viewport.width));canvas.height=Math.max(1,Math.round(viewport.height));
+        const ctx=canvas.getContext('2d',{willReadFrequently:true});await page.render({canvasContext:ctx,viewport}).promise;
+        const ocr=await worker.recognize(canvas);const text=String(ocr?.data?.text||'').trim();
+        p.ocr=true;p.ocrTextChars=text.length;p.ocrConfidence=Number(ocr?.data?.confidence||0);
+        canvas.width=canvas.height=1;try{page.cleanup();}catch(_){ }
+      }catch(_){ }
+    }
+    try{await pdf.cleanup();}catch(_){ }try{await pdf.destroy();}catch(_){ }
+  }finally{try{if(worker)await worker.terminate();}catch(_){ }}
+  result.ocrPages=pages.filter(p=>p.ocr).length;return result;
+}
+
 function inferPmContentType(result){
   const pages=(result?.pageResults||[]).filter(Boolean);
   if(!pages.length)return {type:'',confidence:0,lock:false,reason:'No analyzed pages'};
   const level=String(result?.confidence||'').toLowerCase();
-  const numeric=Number(result?.confidence);
-  const fallbackConfidence=Number.isFinite(numeric)?numeric:(level==='high'?92:level==='medium'?72:45);
+  const resultConfidence=Number(result?.confidence);
+  const fallbackConfidence=Number.isFinite(resultConfidence)?resultConfidence:(level==='high'?92:level==='medium'?72:45);
   if(result.type==='image')return {type:'Image Only',confidence:fallbackConfidence,lock:fallbackConfidence>=86,reason:fallbackConfidence>=86?'Single image is unambiguous':'Image analysis confidence is low'};
   if(result.type==='pptx'){
     const hasMixed=pages.some(p=>p.classification==='Text + Image'),hasText=pages.some(p=>p.classification==='Text Only'),hasImage=pages.some(p=>p.classification==='Image Only');
@@ -3751,29 +3761,33 @@ function inferPmContentType(result){
     return {type,confidence:fallbackConfidence,lock:fallbackConfidence>=86,reason:fallbackConfidence>=86?'Slide XML structure is consistent':'Slide analysis needs confirmation'};
   }
   if(result.type==='docx'){
-    const type=pages[0]?.classification||'Text Only',consistent=pages.every(p=>p.classification===type),lock=fallbackConfidence>=86&&consistent&&!result.estimatedPages;
+    const type=pages[0]?.classification||'Text Only';
+    const consistent=pages.every(p=>p.classification===type);
+    const lock=fallbackConfidence>=86&&consistent&&!result.estimatedPages;
     return {type,confidence:fallbackConfidence,lock,reason:lock?'Word structure is sufficiently explicit':'Word pagination is estimated; manual confirmation recommended'};
   }
-  let hasText=false,hasVisual=false,hasTextAndVisual=false,hasScanned=false,hasLimited=false,weakest=100;
+  let hasText=false,hasVisual=false,hasTextAndVisual=false,hasVisualOnly=false,hasLimited=false;
+  let weakest=100;
   for(const p of pages){
     const text=Number(p.textCount||0)>0;
     const raster=Number(p.imageObjects||0)>0;
-    const vector=Number(p.vectorObjects||0)>=3;
-    const visual=raster||vector||p.visualType==='image'||p.visualType==='scanned-image'||p.visualType==='graphics'||p.visualType==='vector-mixed';
-    hasText ||= text;hasVisual ||= visual;hasTextAndVisual ||= p.classification==='Text + Image'||(text&&visual);
-    hasScanned ||= !!p.scanned||p.visualType==='scanned-image'||(p.classification==='Image Only'&&p.analysisMethod==='PDF-SCANNED-RASTER');
-    hasLimited ||= !!p.warning||p.visualType==='limited';weakest=Math.min(weakest,Number(p.confidence||0));
+    const vector=Number(p.vectorObjects||0)>0;
+    const visual=raster||vector||p.visualType==='image'||p.visualType==='scanned-image'||p.visualType==='graphics';
+    hasText ||= text; hasVisual ||= visual; hasTextAndVisual ||= text&&visual; hasVisualOnly ||= visual&&!text; hasLimited ||= !!p.warning||p.visualType==='limited';
+    weakest=Math.min(weakest,Number(p.confidence||0));
   }
-  // OCR does not change a scanned PDF into a text document. The page raster wins.
-  if(hasScanned)return {type:'Image Only',confidence:Math.max(0,Math.round((weakest*.75)+(fallbackConfidence*.25))),lock:!hasLimited&&weakest>=80,reason:'Full-page raster scan detected'};
   let type='Text Only';
-  if(hasTextAndVisual||hasText&&hasVisual)type='Text + Image';
-  else if(hasVisual&&!hasText)type='Image Only';
+  if(hasTextAndVisual || (hasText&&hasVisual)) type='Text + Image';
+  else if(hasVisual) type='Image Only';
   const counts={text:0,mixed:0,image:0};
   pages.forEach(p=>{const c=p.classification;if(c==='Text + Image')counts.mixed++;else if(c==='Text Only')counts.text++;else if(c==='Image Only')counts.image++;});
-  const dominant=Math.max(counts.text,counts.mixed,counts.image),values=Object.values(counts).filter(v=>v!==dominant),second=values.length?Math.max(...values):0;
-  const agreement=dominant/pages.length,margin=(dominant-second)/pages.length,confidence=Math.round((weakest*.65)+(agreement*100*.35));
-  const lock=!hasLimited&&weakest>=86&&(type==='Text + Image'?hasTextAndVisual:agreement>=.75&&margin>=.25);
+  const dominant=Math.max(counts.text,counts.mixed,counts.image);
+  const second=Math.max(0,...Object.values(counts).filter(v=>v!==dominant));
+  const agreement=dominant/pages.length,margin=(dominant-second)/pages.length;
+  // Lock only when the weakest page is strong and the structural evidence agrees.
+  // Mixed content is conservative: one proven text+visual page prevents a text-only lock.
+  const confidence=Math.round((weakest*.65)+(agreement*100*.35));
+  const lock=!hasLimited && weakest>=86 && (type==='Text + Image'?hasTextAndVisual:agreement>=.75&&margin>=.25);
   return {type,confidence,lock,counts,agreement,margin,weakest,reason:lock?'Strong structural agreement':'Manual confirmation recommended'};
 }
 
