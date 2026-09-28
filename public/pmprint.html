@@ -2887,10 +2887,6 @@
           <div class="field" id="locationField" style="display:none"><label>DELIVERY LOCATION</label><select id="location">
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       <option value="">Select location</option>
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       </select>
-            <div id="deliveryLocationDiagnostic" style="display:block;margin-top:8px;background:#f7f7f7;border:1px solid #d9d9d9;color:#555;border-radius:10px;padding:10px;font-size:10px;line-height:1.5;word-break:break-word">DELIVERY LOCATION DEBUG
-
-Loading locations from PM PRINT database…</div>
-            <button type="button" id="reloadDeliveryLocations" style="margin-top:6px;width:100%;padding:8px 10px;border:1px solid #d0d0d0;border-radius:8px;background:#fff;font-size:11px;cursor:pointer">Reload Delivery Locations</button>
           </div>
           <div class="field">
             <label>DELIVERY NOTES</label><textarea id="notes" placeholder="Room, building, landmark, preferred time, etc."></textarea>
@@ -3311,7 +3307,6 @@ loadCustomerLocations();
   resetFileAfterSuccessfulOrder();
 });
 
-document.addEventListener('DOMContentLoaded',()=>{ const b=$('reloadDeliveryLocations'); if(b)b.addEventListener('click',loadCustomerLocations); });
 window.addEventListener('pageshow',event=>{
   if(event.persisted) resetFileAfterSuccessfulOrder();
 });
@@ -3322,9 +3317,7 @@ window.addEventListener('pageshow',event=>{
                                                                                                                                                                                                                                                                                            
                                                                                                                                                                                                                                                                                            async function loadCustomerLocations(){
   const select=$('location');
-  const diagnostic=$('deliveryLocationDiagnostic');
   if(!select)return;
-  if(diagnostic){diagnostic.style.display='block';diagnostic.style.background='#f7f7f7';diagnostic.style.borderColor='#d9d9d9';diagnostic.style.color='#555';diagnostic.textContent='DELIVERY LOCATION DEBUG\n\nLoading locations from PM PRINT database…';}
   select.innerHTML='<option value="">Loading delivery locations…</option>';
   window.deliveryLocations=[];
   let getError=null;
@@ -3344,41 +3337,18 @@ window.addEventListener('pageshow',event=>{
       result=data;
     }catch(e){
       getError=e;
-      try{
-        result=await apiGet('getLocations');
-      }catch(fallbackError){
+      try{ result=await apiGet('getLocations'); }
+      catch(fallbackError){
         postError=fallbackError;
         throw new Error('Delivery locations failed to load. GET error: '+(getError?.message||getError)+' | POST fallback error: '+(postError?.message||postError));
       }
     }
     const rows=Array.isArray(result?.locations)?result.locations:[];
-    const invalidRows=rows.filter(x=>!x||x.active===false||!String(x.id||'').trim()||!String(x.name||'').trim());
     window.deliveryLocations=rows.filter(x=>x&&x.active!==false&&String(x.id||'').trim()&&String(x.name||'').trim());
-    if(diagnostic){
-      const source=String(result?._diagnostic?.source||'unknown');
-      const table=String(result?._diagnostic?.table||'locations');
-      const responseShape=Array.isArray(result?.locations)?'locations[]':'MISSING locations[]';
-      const rowSummary=rows.slice(0,20).map((x,i)=>{
-        if(!x)return '#'+(i+1)+': <null row>';
-        return '#'+(i+1)+' id='+JSON.stringify(x.id??'')+' | name='+JSON.stringify(x.name??'')+' | fee='+JSON.stringify(x.fee??'')+' | active='+JSON.stringify(x.active??'');
-      }).join('\n');
-      diagnostic.dataset.baseDetails='Endpoint: GET /api/pmprint/getLocations\nHTTP: '+(result?._diagnostic?.httpStatus||'200')+'\nSource: '+source+'\nTable: '+table+'\nResponse: '+responseShape+'\nRows returned: '+rows.length+'\nUsable active rows: '+window.deliveryLocations.length+(rowSummary?'\n\nReturned rows (first 20):\n'+rowSummary:'\n\nReturned rows: <none>');
-    }
     if(!window.deliveryLocations.length){
       select.innerHTML='<option value="">No delivery locations available</option>';
-      if(diagnostic){
-        diagnostic.style.display='block';
-        diagnostic.textContent='DELIVERY LOCATION ERROR\n\n'+(diagnostic.dataset.baseDetails||'No diagnostic details returned.')+'\n\nProblem: The server responded, but PM PRINT could not find a usable active location.\nCheck Admin → Delivery Locations, then compare the returned ID/name/active values above.';
-      }
     }else{
       select.innerHTML='<option value="">Select location</option>'+window.deliveryLocations.map(x=>'<option value="'+escapeHtml(String(x.id))+'">'+escapeHtml(String(x.name))+' — '+pmWholeMoney(x.fee)+'</option>').join('');
-      if(diagnostic){
-        diagnostic.style.display='block';
-        diagnostic.style.background='#eefbf2';
-        diagnostic.style.borderColor='#b9dfc3';
-        diagnostic.style.color='#245c32';
-        diagnostic.textContent='DELIVERY LOCATION DEBUG\n\nEndpoint: GET /api/pmprint/getLocations\nDatabase source: '+String(result?._diagnostic?.source||'unknown')+'\nRows returned: '+rows.length+'\nUsable active locations: '+window.deliveryLocations.length+'\n\nThe customer page successfully received the admin-managed locations. If the dropdown still shows only “Select location”, refresh the page and tap Reload Delivery Locations.';
-      }
     }
     updateDeliveryNote();
     updatePrice();
@@ -3386,11 +3356,10 @@ window.addEventListener('pageshow',event=>{
   }catch(e){
     window.deliveryLocations=[];
     select.innerHTML='<option value="">Delivery locations unavailable</option>';
-    if(diagnostic){
-      diagnostic.style.display='block';
-      diagnostic.textContent='DELIVERY LOCATION ERROR\n\n'+(diagnostic.dataset.baseDetails||'Endpoint: GET /api/pmprint/getLocations\nNo successful location response was received.')+'\n\nRequest error: '+(e?.message||String(e))+'\n\nGET error: '+(getError?.message||'none')+'\nPOST fallback error: '+(postError?.message||'none')+'\n\nIf Admin can see a location but this box shows 0 rows, the customer page and Admin are likely reading different deployed code/database bindings.';
-    }
-    console.error('PM PRINT delivery-location diagnostic:',{error:e,getError,postError,url:'/api/pmprint/getLocations',page:location.href});
+    console.error('PM PRINT delivery-location load error:',{error:e,getError,postError,url:'/api/pmprint/getLocations',page:location.href});
+    updateDeliveryNote();
+    updatePrice();
+    updateSubmitState();
   }
 }
 
@@ -3457,22 +3426,11 @@ $('file').addEventListener('input',handleFileInputChange);
 $('student').addEventListener('input',updateSubmitState);
 $('contact').addEventListener('input',updateSubmitState);
 $('location').addEventListener('change',()=>{
-  const selectedId=String($('location')?.value||'');
-  const selected=(window.deliveryLocations||[]).find(x=>String(x.id)===selectedId);
-  const diagnostic=$('deliveryLocationDiagnostic');
-  if(selectedId&&!selected&&diagnostic){
-    diagnostic.style.display='block';
-    diagnostic.textContent='DELIVERY LOCATION ERROR\n\nThe selected option ID '+JSON.stringify(selectedId)+' was not found in the locations returned by the server.\n\n'+(diagnostic.dataset.baseDetails||'No response diagnostics available.')+'\n\nThis usually means the location ID in the customer page does not match the location ID returned by /api/pmprint/getLocations.';
-  }else if(selected&&diagnostic){
-    diagnostic.style.display='block';
-    diagnostic.style.background='#eefbf2';
-    diagnostic.style.borderColor='#b9dfc3';
-    diagnostic.style.color='#245c32';
-    diagnostic.textContent='DELIVERY LOCATION DEBUG\n\nSelected ID: '+JSON.stringify(selectedId)+'\nSelected name: '+JSON.stringify(selected.name)+'\nDelivery fee: '+pmWholeMoney(selected.fee)+'\n\nThe selected location matches a location returned by PM PRINT.';
-  }
-  updateDeliveryNote();updatePrice();updateSubmitState();
+  updateDeliveryNote();
+  updatePrice();
+  updateSubmitState();
 });
-                                                                                                                                                                                                                                                                                           document.querySelectorAll('input[name="fulfillment"]').forEach(function(x){x.addEventListener('change',function(){
+document.querySelectorAll('input[name="fulfillment"]').forEach(function(x){x.addEventListener('change',function(){
                                                                                                                                                                                                                                                                                              const delivery=this.value==='Delivery';
                                                                                                                                                                                                                                                                                                $('locationField').style.display=delivery?'block':'none';
                                                                                                                                                                                                                                                                                                  updateDeliveryNote();
