@@ -143,7 +143,7 @@ async function sha256Bytes(bytes){const h=await crypto.subtle.digest('SHA-256',b
 async function passwordHash(password, secret=''){return sha256(`${secret}|${password}`);}
 function cookie(name,value,opts={}){let s=`${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax`;if(opts.maxAge!==undefined)s+=`; Max-Age=${opts.maxAge}`;if(opts.secure!==false)s+='; Secure';return s;}
 function getCookie(req,name){const c=req.headers.get('Cookie')||'';for(const p of c.split(';')){const [k,...rest]=p.trim().split('=');if(k===name)return decodeURIComponent(rest.join('='));}return '';}
-async function requireAdmin(env,req){const token=getCookie(req,env.ADMIN_COOKIE||'bsais_admin');if(!token)throw new Error('Administrator login required.');const h=await sha256(token);const row=await env.DB.prepare('SELECT * FROM sessions WHERE token_hash=? AND expires_at>?').bind(h,now()).first();if(!row)throw new Error('Your admin session has expired. Please log in again.');return row;}
+async function requireAdmin(env,req){const token=getCookie(req,env.ADMIN_COOKIE||'bsais_admin');if(!token)throw new Error('Administrator login required.');const h=await sha256(token);const row=await env.DB.prepare('SELECT * FROM sessions WHERE token_hash=? AND (expires_at>? OR expires_at=?)').bind(h,now(),'9999-12-31T23:59:59.999Z').first();if(!row)throw new Error('Your admin session is invalid. Please log in again.');return row;}
 async function log(env,user,action,description){try{await env.DB.prepare('INSERT INTO activity_log(id,username,action,description,timestamp) VALUES(?,?,?,?,?)').bind(id('LOG'),user||'',action,description||'',now()).run();}catch(_){} }
 async function accountPasswordHash(password,salt){let data=new TextEncoder().encode(`${salt}|${password}`);let key=await crypto.subtle.importKey('raw',data,'PBKDF2',false,['deriveBits']);let bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:100000,hash:'SHA-256'},key,256);return [...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 async function accountActivity(env,c,action,description,req){try{await env.DB.prepare('INSERT INTO pm_account_activity(id,customer_id,username,action,description,ip,created_at) VALUES(?,?,?,?,?,?,?)').bind(id('AA'),c?.id||null,c?.username||'',action,description||'',req?.headers.get('CF-Connecting-IP')||'',now()).run();}catch(_){} }
@@ -164,7 +164,6 @@ function calculatePrice(p,pages,copies,content,color,sides,format){let rate;if(c
 async function validateVoucherServer(env,{code,subtotal,pages,copies,deliveryFee,deviceId,consume=false,orderId='',customerId=null,accountManaged=false}){
   code=clean(code).toUpperCase();if(!code)return {discount:0,voucher:null};
   const v=await env.DB.prepare('SELECT * FROM vouchers WHERE code=? AND active=1').bind(code).first();if(!v)throw new Error('Voucher code is invalid or inactive.');
-  if(accountManaged&&customerId){const linked=await env.DB.prepare('SELECT 1 FROM pm_customer_vouchers WHERE customer_id=? AND voucher_code=?').bind(customerId,code).first();if(!linked)throw new Error('This voucher is not assigned to your account. Please select one from Profile > Voucher.');}
   const t=Date.now();if(v.start_at&&new Date(v.start_at).getTime()>t)throw new Error('This voucher is not active yet.');if(v.end_at&&new Date(v.end_at).getTime()<t)throw new Error('This voucher has expired.');
   if(subtotal < num(v.min_spend))throw new Error(`Minimum spend of ₱${num(v.min_spend).toFixed(2)} is required.`);
   if(num(v.min_pages)>0&&pages<num(v.min_pages))throw new Error(`Minimum ${v.min_pages} pages are required.`);
@@ -176,6 +175,28 @@ async function validateVoucherServer(env,{code,subtotal,pages,copies,deliveryFee
   if(v.max_discount!==null&&v.type!=='free_shipping')discount=Math.min(discount,num(v.max_discount));
   discount=Math.min(subtotal+deliveryFee,Math.max(0,discount));
   return {discount:Number(discount.toFixed(2)),voucher:{code,type:v.type,value:num(v.value),label:v.type==='percent'?`${num(v.value)}% OFF`:v.type==='fixed'?`₱${num(v.value).toFixed(2)} OFF`:'FREE DELIVERY'}};
+}
+
+
+async function validateVouchersServer(env,{codes,subtotal,pages,copies,deliveryFee,deviceId,customerId=null,accountManaged=false}){
+  const list=[...new Set((Array.isArray(codes)?codes:String(codes||'').split(',')).map(x=>clean(x).toUpperCase()).filter(Boolean))];
+  if(!list.length) return {discount:0,vouchers:[],codes:[],printDiscount:0,shippingDiscount:0};
+  const vouchers=[];let printDiscount=0,shippingDiscount=0,shippingCount=0;
+  for(const code of list){
+    const v=await validateVoucherServer(env,{code,subtotal,pages,copies,deliveryFee,deviceId,customerId,accountManaged});
+    if(!v.voucher) continue;
+    const type=v.voucher.type;
+    if(type==='free_shipping'){
+      shippingCount++;
+      if(shippingCount>1) throw new Error('Only one shipping voucher can be used at a time.');
+      shippingDiscount=v.discount;
+    }else{
+      printDiscount+=v.discount;
+    }
+    vouchers.push({...v.voucher,discount:v.discount});
+  }
+  const discount=Math.min(subtotal+deliveryFee,Math.max(0,Number((printDiscount+shippingDiscount).toFixed(2))));
+  return {discount,vouchers,codes:vouchers.map(v=>v.code),printDiscount:Number(printDiscount.toFixed(2)),shippingDiscount:Number(shippingDiscount.toFixed(2))};
 }
 
 
@@ -236,8 +257,9 @@ async function createOrder(env,data,origin,apiPrefix='/api',request=null){
     location=loc.name;
     deliveryFee=num(loc.fee);
   }
-  const deviceId=clean(data.deviceId);let discount=0,voucherCode='';let voucherInfo=null;
-  if(clean(data.voucherCode)){const v=await validateVoucherServer(env,{code:data.voucherCode,subtotal:calc.baseTotal,pages,copies,deliveryFee,deviceId,customerId:account?.id||null,accountManaged:accountsOn});discount=v.discount;voucherCode=v.voucher.code;voucherInfo=v.voucher;}
+  const deviceId=clean(data.deviceId);let discount=0,voucherCode='';let voucherInfo=null;let voucherCodes=[];
+  const requestedVoucherCodes=Array.isArray(data.voucherCodes)?data.voucherCodes:(clean(data.voucherCode)?String(data.voucherCode).split(','):[]);
+  if(requestedVoucherCodes.length){const vr=await validateVouchersServer(env,{codes:requestedVoucherCodes,subtotal:calc.baseTotal,pages,copies,deliveryFee,deviceId,customerId:account?.id||null,accountManaged:accountsOn});discount=vr.discount;voucherCodes=vr.codes;voucherCode=vr.codes.join(', ');voucherInfo=vr.vouchers;}
   const settingsInk=pmInkSettings(settings);
   const analysis=normalizeInkAnalysis(data.inkAnalysis,pages);
   const selection=parsePageSelectionServer(pageSelection,pages);
@@ -284,7 +306,7 @@ async function createOrder(env,data,origin,apiPrefix='/api',request=null){
     await env.DB.prepare(`INSERT INTO orders(id,customer_name,contact,location,content_type,print_color,print_side,format,paper_size,copies,binding,file_name,r2_key,fulfillment,delivery_fee,delivery_notes,pages,page_selection,printed_sides,sheets,printing_cost,paper_cost,amount,payment_status,status,status_reason,ready_pickup_location,voucher_code,discount,created_at,updated_at,device_id,ink_analysis_json,pricing_snapshot_json,automatic_ink_cost,admin_ink_override,final_ink_cost,ink_price_source,file_hash,subtotal,centavo_discount,final_total,customer_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(orderId,student,contact,location,content,color,sides,format,paper,copies,binding,clean(data.fileName),permanentKey,fulfillment,deliveryFee,clean(data.notes),pages,pageSelection,calc.printedSides,calc.sheets,calc.printingCost,calc.paperCost,total,'Payment Due','Pending','',fulfillment==='Pickup'?location:'',voucherCode,discount,created,created,deviceId,JSON.stringify(analysisPayload),JSON.stringify(snapshot),totalInk,finalInk,finalInk,'AUTOMATIC',clean(data.fileHash),subtotal,centavoDiscount,total,account?.id||null).run();
   }catch(e){ if(env.PM_PRINT&&permanentKey.startsWith('pmprint/orders/')){try{await env.PRINT_FILES.delete(permanentKey);}catch(_){}} throw e; }
   await createOrderNotification(env,orderId,deviceId,'Pending');
-  if(voucherCode)await env.DB.prepare('INSERT INTO voucher_redemptions(id,voucher_code,device_id,order_id,discount,created_at) VALUES(?,?,?,?,?,?)').bind(id('VR'),voucherCode,deviceId,orderId,discount,created).run();
+  if(voucherCodes.length){const vr=await validateVouchersServer(env,{codes:voucherCodes,subtotal:calc.baseTotal,pages,copies,deliveryFee,deviceId,customerId:account?.id||null,accountManaged:accountsOn});for(const v of vr.vouchers)await env.DB.prepare('INSERT INTO voucher_redemptions(id,voucher_code,device_id,order_id,discount,created_at) VALUES(?,?,?,?,?,?)').bind(id('VR'),v.code,deviceId,orderId,v.discount,created).run();}
   const row=await env.DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first(); return {success:true,order:rowOrder(row,origin,apiPrefix),voucher:voucherInfo};
 }
 async function adminOrders(env,status,origin,limit=100,apiPrefix='/api'){let sql='SELECT * FROM orders';const args=[];if(status){sql+=' WHERE status=?';args.push(status)}else{sql+=` WHERE status IN (${ACTIVE_ORDER_STATUSES.map(()=>'?').join(',')})`;args.push(...ACTIVE_ORDER_STATUSES)}sql+=' ORDER BY created_at DESC LIMIT ?';args.push(Math.min(200,Math.max(1,num(limit,100))));const {results}=await env.DB.prepare(sql).bind(...args).all();return results.map(r=>rowOrder(r,origin,apiPrefix));}
@@ -410,9 +432,9 @@ async function handle(request, env){
     // Customer My Orders API: these are dedicated server actions and always verify ownership server-side.
     if(action==='customerCheckOrderStatus'||action==='getCustomerOrderStatus'||action==='checkCustomerOrderStatus'){
       const c=await requireCustomer(env,request);const oid=clean(data.orderId).toUpperCase();if(!oid)throw new Error('Order ID is required.');
-      const o=await env.DB.prepare('SELECT id,file_name,status,status_reason,payment_status,fulfillment,location,ready_pickup_location,delivery_fee,discount,subtotal,centavo_discount,final_total,amount,printing_cost,paper_cost,automatic_ink_cost,created_at,updated_at,customer_name,contact,voucher_code FROM orders WHERE id=? AND customer_id=?').bind(oid,c.id).first();
+      const o=await env.DB.prepare('SELECT id,file_name,status,status_reason,payment_status,fulfillment,location,ready_pickup_location,delivery_fee,discount,subtotal,centavo_discount,final_total,amount,printing_cost,paper_cost,automatic_ink_cost,final_ink_cost,ink_analysis_json,pricing_snapshot_json,created_at,updated_at,customer_name,contact,voucher_code FROM orders WHERE id=? AND customer_id=?').bind(oid,c.id).first();
       if(!o)throw new Error('Order was not found in your account.');
-      return json({success:true,order:{id:o.id,fileName:o.file_name||'',status:o.status||'Pending',statusReason:o.status_reason||'',paymentStatus:o.payment_status||'Payment Due',fulfillment:o.fulfillment||'',location:o.location||'',readyPickupLocation:o.ready_pickup_location||'',deliveryFee:num(o.delivery_fee),discount:num(o.discount),subtotal:num(o.subtotal),centavoDiscount:num(o.centavo_discount),finalTotal:num(o.final_total,o.amount),amount:num(o.amount),printingCost:num(o.printing_cost),paperCost:num(o.paper_cost),automaticInkCost:num(o.automatic_ink_cost),voucherCode:o.voucher_code||'',studentName:o.customer_name||c.name||'',contact:o.contact||c.phone||'',createdAt:o.created_at||'',updatedAt:o.updated_at||''}});
+      return json({success:true,order:{id:o.id,fileName:o.file_name||'',status:o.status||'Pending',statusReason:o.status_reason||'',paymentStatus:o.payment_status||'Payment Due',fulfillment:o.fulfillment||'',location:o.location||'',readyPickupLocation:o.ready_pickup_location||'',deliveryFee:num(o.delivery_fee),discount:num(o.discount),subtotal:num(o.subtotal),centavoDiscount:num(o.centavo_discount),finalTotal:num(o.final_total,o.amount),amount:num(o.amount),printingCost:num(o.printing_cost),paperCost:num(o.paper_cost),automaticInkCost:num(o.automatic_ink_cost),additionalInkUsage:num(o.final_ink_cost,o.automatic_ink_cost),inkAnalysis:safeJson(o.ink_analysis_json,{}),pricingSnapshot:safeJson(o.pricing_snapshot_json,{}),voucherCode:o.voucher_code||'',studentName:o.customer_name||c.name||'',contact:o.contact||c.phone||'',createdAt:o.created_at||'',updatedAt:o.updated_at||''}});
     }
     if(action==='customerCancelOrder'||action==='cancelCustomerOrder'){const c=await requireCustomer(env,request);const oid=clean(data.orderId).toUpperCase();if(!oid)throw new Error('Order ID is required.');const o=await env.DB.prepare('SELECT id,status,r2_key FROM orders WHERE id=? AND customer_id=?').bind(oid,c.id).first();if(!o)throw new Error('Order was not found in your account.');if(String(o.status||'Pending').toLowerCase()!=='pending')throw new Error('Only Pending orders can be cancelled.');
       // A cancelled order is removed completely from the customer's purchase history.
@@ -425,7 +447,7 @@ async function handle(request, env){
       return json({success:true,orderId:oid,status:'Deleted',deleted:true});}
     if(action==='getCustomerVouchers'){
       const c=await requireCustomer(env,request);const {results}=await env.DB.prepare('SELECT v.code,v.type,v.value,v.min_spend,v.max_discount,v.max_shipping_discount,v.start_at,v.end_at FROM vouchers v INNER JOIN pm_customer_vouchers cv ON cv.voucher_code=v.code AND cv.customer_id=? WHERE v.active=1 ORDER BY v.created_at DESC').bind(c.id).all();
-      const t=Date.now();return json({success:true,vouchers:results.filter(v=>(!v.start_at||new Date(v.start_at).getTime()<=t)&&(!v.end_at||new Date(v.end_at).getTime()>=t)).map(v=>({code:v.code,label:v.type==='percent'?`${num(v.value)}% OFF`:v.type==='fixed'?`₱${num(v.value).toFixed(2)} OFF`:'FREE DELIVERY',minSpend:num(v.min_spend),maxDiscount:v.max_discount===null?null:num(v.max_discount),maxShippingDiscount:v.max_shipping_discount===null?null:num(v.max_shipping_discount),startAt:v.start_at,endAt:v.end_at}))});
+      const t=Date.now();return json({success:true,vouchers:results.filter(v=>(!v.start_at||new Date(v.start_at).getTime()<=t)&&(!v.end_at||new Date(v.end_at).getTime()>=t)).map(v=>({code:v.code,type:v.type,label:v.type==='percent'?`${num(v.value)}% OFF`:v.type==='fixed'?`₱${num(v.value).toFixed(2)} OFF`:'FREE DELIVERY',minSpend:num(v.min_spend),maxDiscount:v.max_discount===null?null:num(v.max_discount),maxShippingDiscount:v.max_shipping_discount===null?null:num(v.max_shipping_discount),startAt:v.start_at,endAt:v.end_at}))});
     }
 
 
@@ -445,6 +467,7 @@ async function handle(request, env){
       await accountActivity(env,customer,'VOUCHERS_UPDATED',`Administrator linked ${valid.length} voucher(s) to this account.`,req);await log(env,user.username,'CUSTOMER_VOUCHERS_UPDATED',`Updated vouchers for customer ${customer.username}.`);
       return {success:true,customerId:cid,linked:valid};
     }
+    if(action==='adminSession'){const session=await requireAdmin(env,request);return json({success:true,authenticated:true,username:session.username||''});}
     if(action==='adminLogin'){
       const username=clean(data.username);
       const password=String(data.password||'');
@@ -452,9 +475,9 @@ async function handle(request, env){
       const configuredPassword=String(env.PM_ADMIN_PASSWORD||'');
       if(!configuredUsername||!configuredPassword)return err('PM PRINT administrator credentials are not configured in Cloudflare Worker Secrets.',503);
       if(username!==configuredUsername||password!==configuredPassword)return json({success:false,error:'Invalid username or password.'},401);
-      const token=crypto.randomUUID()+crypto.randomUUID(),th=await sha256(token),exp=new Date(Date.now()+8*3600*1000).toISOString();
+      const token=crypto.randomUUID()+crypto.randomUUID(),th=await sha256(token),exp='9999-12-31T23:59:59.999Z';
       await env.DB.prepare('INSERT INTO sessions(token_hash,username,name,role,permissions,created_at,expires_at) VALUES(?,?,?,?,?,?,?)').bind(th,username,'Administrator','Administrator','ALL',now(),exp).run();
-      return json({success:true},200,{'set-cookie':cookie(env.ADMIN_COOKIE,token,{maxAge:28800})});
+      return json({success:true},200,{'set-cookie':cookie(env.ADMIN_COOKIE,token,{maxAge:2147483647})});
     }
     if(action==='adminLogout'){
       const token=getCookie(request,env.ADMIN_COOKIE);if(token)await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await sha256(token)).run();
@@ -469,6 +492,7 @@ async function handle(request, env){
     }
     if(action==='getLocations'){const locations=await getLocations(env,true);return json({success:true,locations,_diagnostic:{source:env.PM_DB?'PM_DB':(env.DB?'DB':'NO_DATABASE_BINDING'),table:'locations',httpStatus:200}});}
     if(action==='getPricing')return json({success:true,pricing:await getPricing(env)});
+    if(action==='validateVouchers'){const p=await getPricing(env),pages=Math.max(1,Math.floor(num(data.pages,1))),copies=Math.max(1,Math.floor(num(data.copies,1)));let subtotal=num(data.amount);if(!subtotal&&data.contentType)subtotal=calculatePrice(p,pages,copies,clean(data.contentType),clean(data.color),clean(data.sides),clean(data.format)).baseTotal;const managed=await accountManagementOn(env);const c=managed?await requireCustomer(env,request):null;const v=await validateVouchersServer(env,{codes:data.codes,subtotal,pages,copies,deliveryFee:num(data.deliveryFee),deviceId:clean(data.deviceId),customerId:c?.id||null,accountManaged:managed});return json({success:true,...v});}
     if(action==='validateVoucher'){
       const p=await getPricing(env),pages=Math.max(1,Math.floor(num(data.pages,1))),copies=Math.max(1,Math.floor(num(data.copies,1)));
       let subtotal=num(data.amount);if(!subtotal&&data.contentType)subtotal=calculatePrice(p,pages,copies,clean(data.contentType),clean(data.color),clean(data.sides),clean(data.format)).baseTotal;
