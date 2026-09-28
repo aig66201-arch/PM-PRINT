@@ -132,7 +132,16 @@ async function ensurePmSchema(env){
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pm_account_activity_customer ON pm_account_activity(customer_id,created_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pm_account_activity_created ON pm_account_activity(created_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pm_customer_sessions_customer ON pm_customer_sessions(customer_id)").run();
-  await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_customer_vouchers (customer_id TEXT NOT NULL, voucher_code TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(customer_id,voucher_code))").run();
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_customer_vouchers (customer_id TEXT NOT NULL, voucher_code TEXT NOT NULL, assigned_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '', PRIMARY KEY(customer_id,voucher_code))").run();
+  // Older PM PRINT deployments created this table with only customer_id/voucher_code.
+  // Upgrade those existing tables in-place so voucher linking never fails on a
+  // missing timestamp column. SQLite ADD COLUMN is safe here because the
+  // columns are added only when PRAGMA table_info confirms they are absent.
+  const voucherCols=await env.DB.prepare("PRAGMA table_info(pm_customer_vouchers)").all();
+  const voucherNames=new Set((voucherCols.results||[]).map(r=>r.name));
+  if(!voucherNames.has('assigned_at')) await env.DB.prepare("ALTER TABLE pm_customer_vouchers ADD COLUMN assigned_at TEXT NOT NULL DEFAULT ''").run();
+  if(!voucherNames.has('created_at')) await env.DB.prepare("ALTER TABLE pm_customer_vouchers ADD COLUMN created_at TEXT NOT NULL DEFAULT ''").run();
+  if(!voucherNames.has('updated_at')) await env.DB.prepare("ALTER TABLE pm_customer_vouchers ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pm_customer_vouchers_customer ON pm_customer_vouchers(customer_id)").run();
 
   const defaults=[['pmprint_black_ink_rate','0.50'],['pmprint_color_ink_rate','1.00'],['pmprint_min_ink_charge','0.01'],['pmprint_coverage_threshold','5'],['service_message','Printing orders are temporarily unavailable. Please check again later.'],['pmprint_account_management','0']];
@@ -477,8 +486,8 @@ async function handle(request, env){
       const codes=[...new Set((Array.isArray(data.voucherCodes)?data.voucherCodes:[]).map(x=>clean(x).toUpperCase()).filter(Boolean))];
       const valid=[];for(const code of codes){const v=await env.DB.prepare('SELECT code FROM vouchers WHERE code=?').bind(code).first();if(v)valid.push(code);}
       await env.DB.prepare('DELETE FROM pm_customer_vouchers WHERE customer_id=?').bind(cid).run();
-      const t=now();for(const code of valid)await env.DB.prepare('INSERT INTO pm_customer_vouchers(customer_id,voucher_code,created_at,updated_at) VALUES(?,?,?,?)').bind(cid,code,t,t).run();
-      await accountActivity(env,customer,'VOUCHERS_UPDATED',`Administrator linked ${valid.length} voucher(s) to this account.`,req);await log(env,user.username,'CUSTOMER_VOUCHERS_UPDATED',`Updated vouchers for customer ${customer.username}.`);
+      for(const code of valid)await env.DB.prepare('INSERT INTO pm_customer_vouchers(customer_id,voucher_code,assigned_at,created_at,updated_at) VALUES(?,?,?,?,?)').bind(cid,code,now(),now(),now()).run();
+      await accountActivity(env,customer,'VOUCHERS_UPDATED',`Administrator linked ${valid.length} voucher(s) to this account.`,request);await log(env,user.username,'CUSTOMER_VOUCHERS_UPDATED',`Updated vouchers for customer ${customer.username}.`);
       return {success:true,customerId:cid,linked:valid};
     }
     if(action==='adminSession'){const session=await requireAdmin(env,request);return json({success:true,authenticated:true,username:session.username||''});}
