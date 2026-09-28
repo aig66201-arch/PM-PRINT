@@ -1,0 +1,22 @@
+name = "pm-print-standalone"
+main = "src/worker.js"
+compatibility_date = "2026-08-30"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "PM_DB"
+database_name = "pm-print"
+database_id = "d0673f83-6822-4956-8a42-382826a674d0"
+migrations_dir = "migrations"
+migrations_table = "d1_migrations_pm"
+
+[[r2_buckets]]
+binding = "PRINT_FILES"
+bucket_name = "bsais-printing-files"
+
+[vars]
+PM_APP_NAME = "PM PRINT"
+MAX_UPLOAD_BYTES = "20971520"
