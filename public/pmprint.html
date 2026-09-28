@@ -2883,17 +2883,6 @@
 
           <div class="field" id="locationField" style="display:none"><label>DELIVERY LOCATION</label><select id="location">
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       <option value="">Select location</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>College of Computing Studies, Information and Communication Technology (CCSICT) Building</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>New Building - College of Business Management (CBM)</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>Old Building - College of Business Management (CBM)</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>New Building - College of Education</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>Old Building - College of Education</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>College of Criminal Justice Education (CCJE) Building</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>College of Law Building</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>Polytechnic School Building</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>School of Arts &amp; Sciences Building</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>Campus Library</option>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      <option>Multipurpose Gymnasium</option>
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       </select>
           </div>
           <div class="field">
@@ -3324,11 +3313,15 @@ window.addEventListener('pageshow',event=>{
                                                                                                                                                                                                                                                                                            async function loadCustomerLocations(){
   try{
     const result=await apiGet('getLocations');
-    window.deliveryLocations=Array.isArray(result.locations)?result.locations:[];
+    window.deliveryLocations=Array.isArray(result.locations)?result.locations.filter(x=>x&&x.active!==false):[];
     const select=$('location'); if(!select)return;
-    select.innerHTML='<option value="">Select location</option>'+window.deliveryLocations.filter(x=>x.active!==false).map(x=>'<option value="'+escapeHtml(x.name)+'">'+escapeHtml(x.name)+' — '+pmWholeMoney(x.fee)+'</option>').join('');
+    select.innerHTML='<option value="">Select location</option>'+window.deliveryLocations.map(x=>'<option value="'+escapeHtml(String(x.id||''))+'">'+escapeHtml(String(x.name||''))+' — '+pmWholeMoney(x.fee)+'</option>').join('');
+    updateDeliveryNote();
+    updatePrice();
+    updateSubmitState();
   }catch(e){
     window.deliveryLocations=[];
+    const select=$('location'); if(select)select.innerHTML='<option value="">Delivery locations unavailable</option>';
     console.warn('Could not load delivery locations',e);
   }
 }
@@ -3336,8 +3329,8 @@ window.addEventListener('pageshow',event=>{
 function getSelectedDeliveryFee(){
   const fulfillment=document.querySelector('input[name="fulfillment"]:checked')?.value||'Pickup';
   if(fulfillment!=='Delivery') return 0;
-  const name=$('location')?.value||'';
-  return Number((window.deliveryLocations||[]).find(x=>x.name===name)?.fee||0);
+  const locationId=$('location')?.value||'';
+  return Number((window.deliveryLocations||[]).find(x=>String(x.id)===String(locationId))?.fee||0);
 }
 
 function updateDeliveryNote(){
@@ -3345,7 +3338,9 @@ function updateDeliveryNote(){
   if(!note)return;
   const delivery=document.querySelector('input[name="fulfillment"]:checked')?.value==='Delivery';
   if(delivery){
-    const name=$('location')?.value||'';
+    const locationId=$('location')?.value||'';
+    const selected=(window.deliveryLocations||[]).find(x=>String(x.id)===String(locationId));
+    const name=selected?.name||'';
     if(name){
       note.innerHTML='<b>Delivery fee:</b> <b>'+pmWholeMoney(getSelectedDeliveryFee())+'</b> for <b>'+escapeHtml(name)+'</b>.';
     }else{
@@ -3956,7 +3951,7 @@ async function placeOrder(){
   submit.dataset.busy='1';submit.disabled=true;submit.textContent='Placing order…';
   try{
     const voucherCode=($('voucherCode')?.value||'').trim().toUpperCase();let voucher=window.currentVoucher||null;if(voucherCode){const validated=await apiPost({action:'validateVoucher',code:voucherCode,amount:Number(price.baseTotal||0),pages:Number(price.pages||analyzedPages||0),copies:Number(price.copies||$('copies').value||1),deliveryFee:Number(price.deliveryFee||0),deviceId:getVoucherDeviceId()});voucher=validated.voucher;}
-    const orderData={studentName,contact,fulfillment,location:fulfillment==='Pickup'?(window.currentPickupLocation||'New Building CBM - Room 405'):$('location').value,notes:$('notes').value.trim(),fileName:selectedFile.name,fileHash:window.pmLocalFileHash||await hashFile(selectedFile),inkAnalysis:window.pmInkAnalysisRows||[],fileType:selectedFile.type||'',pages:price.pages,pageSelection:getSelectedPrintPages().normalized||'',copies:price.copies,contentType:price.content,color:price.color,sides:price.sides,format:price.format,paperSize:$('paper').value,binding:$('binding').value,deviceId:getVoucherDeviceId(),voucherCode:voucher?voucher.code:'',discount:voucher?Number(voucher.discount||0):0,deviceBrand:getDeviceInfo().brand,deviceModel:getDeviceInfo().model,deviceOS:getDeviceInfo().os,deviceBrowser:getDeviceInfo().browser};
+    const orderData={studentName,contact,fulfillment,location:fulfillment==='Pickup'?(window.currentPickupLocation||'New Building CBM - Room 405'):'',locationId:fulfillment==='Delivery'?$('location').value:'',notes:$('notes').value.trim(),fileName:selectedFile.name,fileHash:window.pmLocalFileHash||await hashFile(selectedFile),inkAnalysis:window.pmInkAnalysisRows||[],fileType:selectedFile.type||'',pages:price.pages,pageSelection:getSelectedPrintPages().normalized||'',copies:price.copies,contentType:price.content,color:price.color,sides:price.sides,format:price.format,paperSize:$('paper').value,binding:$('binding').value,deviceId:getVoucherDeviceId(),voucherCode:voucher?voucher.code:'',discount:voucher?Number(voucher.discount||0):0,deviceBrand:getDeviceInfo().brand,deviceModel:getDeviceInfo().model,deviceOS:getDeviceInfo().os,deviceBrowser:getDeviceInfo().browser};
     const fd=new FormData();fd.append('orderData',JSON.stringify(orderData));fd.append('file',selectedFile,selectedFile.name);
     const result=await uploadOrderRequest(fd);
     const order=result.order||result;if(!order?.OrderID)throw new Error('The server did not return a valid Order ID.');
