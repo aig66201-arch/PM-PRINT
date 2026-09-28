@@ -469,8 +469,15 @@ async function handle(request, env){
       await accountActivity(env,c,'ORDER_CANCELLED','Customer cancelled and deleted order '+oid+'.',request);
       return json({success:true,orderId:oid,status:'Deleted',deleted:true});}
     if(action==='getCustomerVouchers'){
-      const c=await requireCustomer(env,request);const {results}=await env.DB.prepare('SELECT v.code,v.type,v.value,v.min_spend,v.max_discount,v.max_shipping_discount,v.start_at,v.end_at FROM vouchers v INNER JOIN pm_customer_vouchers cv ON cv.voucher_code=v.code AND cv.customer_id=? WHERE v.active=1 ORDER BY v.created_at DESC').bind(c.id).all();
-      const t=Date.now();return json({success:true,vouchers:results.filter(v=>(!v.start_at||new Date(v.start_at).getTime()<=t)&&(!v.end_at||new Date(v.end_at).getTime()>=t)).map(v=>({code:v.code,type:v.type,label:v.type==='percent'?`${num(v.value)}% OFF`:v.type==='fixed'?`₱${num(v.value).toFixed(2)} OFF`:'FREE DELIVERY',minSpend:num(v.min_spend),maxDiscount:v.max_discount===null?null:num(v.max_discount),maxShippingDiscount:v.max_shipping_discount===null?null:num(v.max_shipping_discount),startAt:v.start_at,endAt:v.end_at}))});
+      const c=await requireCustomer(env,request);
+      const {results}=await env.DB.prepare('SELECT v.code,v.type,v.value,v.min_spend,v.max_discount,v.max_shipping_discount,v.start_at,v.end_at FROM pm_customer_vouchers cv INNER JOIN vouchers v ON v.code=cv.voucher_code WHERE cv.customer_id=? AND v.active=1 ORDER BY v.created_at DESC, v.code ASC').bind(c.id).all();
+      const t=Date.now();
+      const vouchers=results.filter(v=>{
+        const start=v.start_at?new Date(v.start_at).getTime():NaN;
+        const end=v.end_at?new Date(v.end_at).getTime():NaN;
+        return (!v.start_at||Number.isNaN(start)||start<=t)&&(!v.end_at||Number.isNaN(end)||end>=t);
+      }).map(v=>({code:v.code,type:v.type,label:v.type==='percent'?`${num(v.value)}% OFF`:v.type==='fixed'?`₱${num(v.value).toFixed(2)} OFF`:'FREE DELIVERY',minSpend:num(v.min_spend),maxDiscount:v.max_discount===null?null:num(v.max_discount),maxShippingDiscount:v.max_shipping_discount===null?null:num(v.max_shipping_discount),startAt:v.start_at,endAt:v.end_at}));
+      return json({success:true,vouchers});
     }
 
 
