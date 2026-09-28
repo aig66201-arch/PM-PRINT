@@ -94,16 +94,45 @@ function calculatePmInk(settings,analysis,selectedPages,colorMode='Colored'){
 
 async function ensurePmSchema(env){
   if(!env.PM_PRINT||!env.DB)return;
-  const cols=await env.DB.prepare('PRAGMA table_info(orders)').all();
-  const names=new Set((cols.results||[]).map(r=>r.name));
-  const additions=[['ink_analysis_json',"TEXT DEFAULT ''"],['pricing_snapshot_json',"TEXT DEFAULT ''"],['automatic_ink_cost','REAL NOT NULL DEFAULT 0'],['admin_ink_override','REAL'],['final_ink_cost','REAL NOT NULL DEFAULT 0'],['ink_price_source',"TEXT NOT NULL DEFAULT 'AUTOMATIC'"],['file_hash',"TEXT DEFAULT ''"],['subtotal','REAL NOT NULL DEFAULT 0'],['centavo_discount','REAL NOT NULL DEFAULT 0'],['final_total','REAL NOT NULL DEFAULT 0']];
-  for(const [name,type] of additions)if(!names.has(name))await env.DB.prepare(`ALTER TABLE orders ADD COLUMN ${name} ${type}`).run();
-  const acctCols=await env.DB.prepare('PRAGMA table_info(orders)').all();const acctNames=new Set((acctCols.results||[]).map(r=>r.name));
-  if(!acctNames.has('customer_id'))await env.DB.prepare("ALTER TABLE orders ADD COLUMN customer_id TEXT").run();
+
+  // Existing PM PRINT databases may have been created before Account Management.
+  // Never assume CREATE TABLE IF NOT EXISTS changes an existing table: it does not.
+  // Ensure every required column exists BEFORE creating indexes or running account queries.
+  const ensureColumn=async(table,column,type)=>{
+    const info=await env.DB.prepare(`PRAGMA table_info(${table})`).all();
+    const names=new Set((info.results||[]).map(r=>r.name));
+    if(!names.has(column)) await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`).run();
+  };
+
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT NOT NULL)").run();
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY)").run();
+
+  const orderColumns=[
+    ['customer_id','TEXT'],
+    ['checkout_id','TEXT'],
+    ['ink_analysis_json',"TEXT DEFAULT ''"],
+    ['pricing_snapshot_json',"TEXT DEFAULT ''"],
+    ['automatic_ink_cost','REAL NOT NULL DEFAULT 0'],
+    ['admin_ink_override','REAL'],
+    ['final_ink_cost','REAL NOT NULL DEFAULT 0'],
+    ['ink_price_source',"TEXT NOT NULL DEFAULT 'AUTOMATIC'"],
+    ['file_hash',"TEXT DEFAULT ''"],
+    ['subtotal','REAL NOT NULL DEFAULT 0'],
+    ['centavo_discount','REAL NOT NULL DEFAULT 0'],
+    ['final_total','REAL NOT NULL DEFAULT 0']
+  ];
+  for(const [name,type] of orderColumns) await ensureColumn('orders',name,type);
+
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_customers (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', profile_picture_key TEXT DEFAULT '', bio TEXT DEFAULT '', gender TEXT DEFAULT '', birthday TEXT DEFAULT '', phone TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'Active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)").run();
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_customer_sessions (token_hash TEXT PRIMARY KEY, customer_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, remember INTEGER NOT NULL DEFAULT 0)").run();
-  await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_account_activity (id TEXT PRIMARY KEY, customer_id TEXT, username TEXT NOT NULL DEFAULT '', action TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', ip TEXT DEFAULT '', created_at TEXT NOT NULL)").run();
+  await ensureColumn('pm_customer_sessions','customer_id',"TEXT NOT NULL DEFAULT ''");
+
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_account_activity (id TEXT PRIMARY KEY, username TEXT NOT NULL DEFAULT '', action TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', ip TEXT DEFAULT '', created_at TEXT NOT NULL)").run();
+  await ensureColumn('pm_account_activity','customer_id','TEXT');
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pm_account_activity_customer ON pm_account_activity(customer_id,created_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pm_account_activity_created ON pm_account_activity(created_at DESC)").run();
+  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_pm_customer_sessions_customer ON pm_customer_sessions(customer_id)").run();
+
   const defaults=[['pmprint_black_ink_rate','0.50'],['pmprint_color_ink_rate','1.00'],['pmprint_min_ink_charge','0.01'],['pmprint_coverage_threshold','5'],['service_message','Printing orders are temporarily unavailable. Please check again later.']];
   const t=now();for(const [k,v] of defaults)await env.DB.prepare("INSERT INTO settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING").bind(k,v,t).run();
 }
@@ -114,7 +143,7 @@ function cookie(name,value,opts={}){let s=`${name}=${encodeURIComponent(value)};
 function getCookie(req,name){const c=req.headers.get('Cookie')||'';for(const p of c.split(';')){const [k,...rest]=p.trim().split('=');if(k===name)return decodeURIComponent(rest.join('='));}return '';}
 async function requireAdmin(env,req){const token=getCookie(req,env.ADMIN_COOKIE||'bsais_admin');if(!token)throw new Error('Administrator login required.');const h=await sha256(token);const row=await env.DB.prepare('SELECT * FROM sessions WHERE token_hash=? AND expires_at>?').bind(h,now()).first();if(!row)throw new Error('Your admin session has expired. Please log in again.');return row;}
 async function log(env,user,action,description){try{await env.DB.prepare('INSERT INTO activity_log(id,username,action,description,timestamp) VALUES(?,?,?,?,?)').bind(id('LOG'),user||'',action,description||'',now()).run();}catch(_){} }
-async function accountPasswordHash(password,salt){let data=new TextEncoder().encode(`${salt}|${password}`);let key=await crypto.subtle.importKey('raw',data,'PBKDF2',false,['deriveBits']);let bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:120000,hash:'SHA-256'},key,256);return [...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,'0')).join('');}
+async function accountPasswordHash(password,salt){let data=new TextEncoder().encode(`${salt}|${password}`);let key=await crypto.subtle.importKey('raw',data,'PBKDF2',false,['deriveBits']);let bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:100000,hash:'SHA-256'},key,256);return [...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 async function accountActivity(env,c,action,description,req){try{await env.DB.prepare('INSERT INTO pm_account_activity(id,customer_id,username,action,description,ip,created_at) VALUES(?,?,?,?,?,?,?)').bind(id('AA'),c?.id||null,c?.username||'',action,description||'',req?.headers.get('CF-Connecting-IP')||'',now()).run();}catch(_){} }
 async function requireCustomer(env,req){const token=getCookie(req,'pmprint_customer');if(!token)throw new Error('Customer login required.');const h=await sha256(token);const row=await env.DB.prepare('SELECT c.* FROM pm_customer_sessions s INNER JOIN pm_customers c ON c.id=s.customer_id WHERE s.token_hash=? AND s.expires_at>?').bind(h,now()).first();if(!row||row.status!=='Active')throw new Error('Your customer session is invalid or your account is inactive.');return row;}
 function publicCustomer(c){return c?{id:c.id,username:c.username,name:c.name,phone:c.phone||'',gender:c.gender||'',birthday:c.birthday||'',bio:c.bio||'',status:c.status,createdAt:c.created_at,updatedAt:c.updated_at}:null;}
@@ -278,7 +307,7 @@ async function handleAdmin(env,req,action,data,origin,apiPrefix='/api'){const us
   if(action==='getAccountSettings'){const on=await accountManagementOn(env);const c=await env.DB.prepare('SELECT COUNT(*) c FROM pm_customers').first();return {success:true,accountManagement:on,totalCustomers:num(c?.c)};}
   if(action==='setAccountManagement'){const on=!!data.enabled;await env.DB.prepare("INSERT INTO settings(key,value,updated_at) VALUES('pmprint_account_management',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(on?'1':'0',now()).run();await log(env,user.username,'ACCOUNT_MANAGEMENT_'+(on?'ON':'OFF'),`Customer Account Management turned ${on?'ON':'OFF'}.`);return {success:true,accountManagement:on};}
   if(action==='getCustomerAccounts')return {success:true,accounts:await adminCustomers(env,clean(data.search),clean(data.status))};
-  if(action==='createCustomerAccount'){const name=clean(data.name),username=clean(data.username).toLowerCase(),password=String(data.password||'');if(!name)throw new Error('Full Name is required.');if(!/^[A-Za-z0-9._-]{3,40}$/.test(username))throw new Error('Username must be 3–40 letters, numbers, dot, underscore or hyphen.');if(password.length<8)throw new Error('Password must be at least 8 characters.');const exists=await env.DB.prepare('SELECT id FROM pm_customers WHERE username=?').bind(username).first();if(exists)throw new Error('That username is already in use.');const salt=crypto.randomUUID()+crypto.randomUUID(),hash=await accountPasswordHash(password,salt),cid=id('CUS');await env.DB.prepare('INSERT INTO pm_customers(id,username,password_hash,password_salt,name,bio,gender,birthday,phone,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').bind(cid,username,hash,salt,name,clean(data.bio),clean(data.gender),clean(data.birthday),clean(data.phone),data.status==='Inactive'?'Inactive':'Active',now(),now()).run();await accountActivity(env,{id:cid,username},'ACCOUNT_CREATED',`Account created by administrator for ${name}.`,req);await log(env,user.username,'CUSTOMER_ACCOUNT_CREATED',`Created customer account ${username}.`);return {success:true,account:(await adminCustomers(env,username,''))[0]};}
+  if(action==='createCustomerAccount'){const name=clean(data.name),username=clean(data.username).toLowerCase(),password=String(data.password||'');if(!name)throw new Error('Full Name is required.');if(!/^[A-Za-z0-9._%+@-]{3,80}$/.test(username)||username.startsWith('@')||username.endsWith('@')||username.includes('@@'))throw new Error('Username must be 3–80 characters and may use letters, numbers, dot, underscore, hyphen, plus, percent or @.');if(password.length<8)throw new Error('Password must be at least 8 characters.');const exists=await env.DB.prepare('SELECT id FROM pm_customers WHERE username=?').bind(username).first();if(exists)throw new Error('That username is already in use.');const salt=crypto.randomUUID()+crypto.randomUUID(),hash=await accountPasswordHash(password,salt),cid=id('CUS');await env.DB.prepare('INSERT INTO pm_customers(id,username,password_hash,password_salt,name,bio,gender,birthday,phone,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').bind(cid,username,hash,salt,name,clean(data.bio),clean(data.gender),clean(data.birthday),clean(data.phone),data.status==='Inactive'?'Inactive':'Active',now(),now()).run();await accountActivity(env,{id:cid,username},'ACCOUNT_CREATED',`Account created by administrator for ${name}.`,req);await log(env,user.username,'CUSTOMER_ACCOUNT_CREATED',`Created customer account ${username}.`);return {success:true,account:(await adminCustomers(env,username,''))[0]};}
   if(action==='updateCustomerAccount'){const cid=clean(data.id),name=clean(data.name),username=clean(data.username).toLowerCase();if(!cid||!name||!username)throw new Error('Account ID, Full Name and Username are required.');const old=await env.DB.prepare('SELECT * FROM pm_customers WHERE id=?').bind(cid).first();if(!old)throw new Error('Customer account not found.');const dupe=await env.DB.prepare('SELECT id FROM pm_customers WHERE username=? AND id<>?').bind(username,cid).first();if(dupe)throw new Error('That username is already in use.');await env.DB.prepare('UPDATE pm_customers SET username=?,name=?,phone=?,gender=?,birthday=?,bio=?,status=?,updated_at=? WHERE id=?').bind(username,name,clean(data.phone),clean(data.gender),clean(data.birthday),clean(data.bio),data.status==='Inactive'?'Inactive':'Active',now(),cid).run();if(data.status==='Inactive')await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE customer_id=?').bind(cid).run();await accountActivity(env,{id:cid,username},'ACCOUNT_UPDATED','Account details updated by administrator.',req);await log(env,user.username,'CUSTOMER_ACCOUNT_UPDATED',`Updated customer account ${username}.`);return {success:true};}
   if(action==='deleteCustomerAccount'){const cid=clean(data.id),c=await env.DB.prepare('SELECT * FROM pm_customers WHERE id=?').bind(cid).first();if(!c)throw new Error('Customer account not found.');await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE customer_id=?').bind(cid).run();await env.DB.prepare('UPDATE orders SET customer_id=NULL WHERE customer_id=?').bind(cid).run();await accountActivity(env,c,'ACCOUNT_DELETED','Account deleted by administrator.',req);await env.DB.prepare('DELETE FROM pm_customers WHERE id=?').bind(cid).run();await log(env,user.username,'CUSTOMER_ACCOUNT_DELETED',`Deleted customer account ${c.username}.`);return {success:true};}
   if(action==='resetCustomerPassword'){const cid=clean(data.id),password=String(data.password||'');if(password.length<8)throw new Error('Password must be at least 8 characters.');const c=await env.DB.prepare('SELECT * FROM pm_customers WHERE id=?').bind(cid).first();if(!c)throw new Error('Customer account not found.');const salt=crypto.randomUUID()+crypto.randomUUID(),hash=await accountPasswordHash(password,salt);await env.DB.prepare('UPDATE pm_customers SET password_hash=?,password_salt=?,updated_at=? WHERE id=?').bind(hash,salt,now(),cid).run();await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE customer_id=?').bind(cid).run();await accountActivity(env,c,'PASSWORD_RESET','Password reset by administrator.',req);await log(env,user.username,'CUSTOMER_PASSWORD_RESET',`Reset password for ${c.username}.`);return {success:true};}
@@ -311,7 +340,10 @@ async function handleAdmin(env,req,action,data,origin,apiPrefix='/api'){const us
     await env.DB.prepare("UPDATE orders SET admin_ink_override=?,final_ink_cost=?,subtotal=?,centavo_discount=?,final_total=?,amount=?,pricing_snapshot_json=?,updated_at=? WHERE id=?").bind(finalInk,finalInk,adjustment.subtotal,adjustment.discount,adjustment.finalTotal,adjustment.finalTotal,JSON.stringify(newSnap),now(),oid).run();
     const fresh=await env.DB.prepare('SELECT * FROM orders WHERE id=?').bind(oid).first();return {success:true,order:rowOrder(fresh,origin,apiPrefix)};
   }
-  if(action==='getLocations')return {success:true,locations:await getLocations(env,false)};
+  if(action==='getLocations'){
+    const locations=await getLocations(env,false);
+    return {success:true,locations,_diagnostic:{source:env.PM_DB?'PM_DB':(env.DB?'DB':'NO_DATABASE_BINDING'),table:'locations',httpStatus:200}};
+  }
   if(action==='saveLocation'){const name=clean(data.name);if(!name)throw new Error('Location name is required.');const fee=num(data.fee,-1);if(fee<0)throw new Error('Location fee cannot be negative.');const lid=clean(data.id)||id('LOC');await env.DB.prepare('INSERT INTO locations(id,name,fee,active,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,fee=excluded.fee,active=excluded.active,updated_at=excluded.updated_at').bind(lid,name,fee,data.active===false?0:1,now(),now()).run();return {success:true,locations:await getLocations(env,false)};}
   if(action==='deleteLocation'){await env.DB.prepare('DELETE FROM locations WHERE id=?').bind(clean(data.id)).run();return {success:true,locations:await getLocations(env,false)};}
   if(action==='createVoucher'){const code=clean(data.code).toUpperCase();if(!/^[A-Z0-9_-]{3,20}$/.test(code))throw new Error('Voucher code must be 3–20 letters/numbers.');const type=clean(data.type||'percent');if(!['percent','fixed','free_shipping'].includes(type))throw new Error('Invalid voucher type.');const value=num(data.value);if(type!=='free_shipping'&&value<=0)throw new Error('Discount value must be greater than zero.');if(type==='percent'&&value>100)throw new Error('Percentage discount cannot exceed 100%.');await env.DB.prepare(`INSERT INTO vouchers(code,type,value,min_spend,max_discount,max_shipping_discount,min_pages,min_copies,total_usage_limit,per_device_limit,start_at,end_at,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(code) DO UPDATE SET type=excluded.type,value=excluded.value,min_spend=excluded.min_spend,max_discount=excluded.max_discount,max_shipping_discount=excluded.max_shipping_discount,min_pages=excluded.min_pages,min_copies=excluded.min_copies,total_usage_limit=excluded.total_usage_limit,per_device_limit=excluded.per_device_limit,start_at=excluded.start_at,end_at=excluded.end_at,active=excluded.active,updated_at=excluded.updated_at`).bind(code,type,value,num(data.minSpend),data.maxDiscount===''||data.maxDiscount==null?null:num(data.maxDiscount),data.maxShippingDiscount===''||data.maxShippingDiscount==null?null:num(data.maxShippingDiscount),Math.max(0,Math.floor(num(data.minPages))),Math.max(0,Math.floor(num(data.minCopies))),data.totalUsageLimit===''||data.totalUsageLimit==null?null:Math.max(0,Math.floor(num(data.totalUsageLimit))),Math.max(1,Math.floor(num(data.perDeviceLimit,1))),data.startAt||null,data.endAt||null,1,now(),now()).run();return {success:true,vouchers:await listVouchers(env)};}
@@ -331,9 +363,12 @@ async function handle(request, env){
   if(incomingUrl.pathname === '/admin.html') return env.ASSETS.fetch(request);
   if(incomingUrl.pathname === '/pmprint') return env.ASSETS.fetch(new Request(new URL('/pmprint.html',request.url),request));
   if(incomingUrl.pathname === '/pmprint.html') return env.ASSETS.fetch(request);
-  if(!env.DB) return err('PM PRINT database binding is not configured.',503);
+  // PM PRINT is isolated from the normal BSAIS database. Prefer the dedicated PM_DB binding.
+  // Keep DB as a compatibility fallback for older standalone deployments.
+  const pmDatabase=env.PM_DB||env.DB;
+  if(!pmDatabase) return err('PM PRINT database binding is not configured. Expected PM_DB.',503);
   if(!env.PRINT_FILES) return err('PM PRINT R2 storage binding is not configured.',503);
-  env={...env,API_PREFIX:'/api/pmprint',ADMIN_COOKIE:'pmprint_admin',PRINT_PREFIX:'pmprinting/',PM_PRINT:true};
+  env={...env,DB:pmDatabase,PM_DB:pmDatabase,API_PREFIX:'/api/pmprint',ADMIN_COOKIE:'pmprint_admin',PRINT_PREFIX:'pmprinting/',PM_PRINT:true};
   try{await ensurePmSchema(env);}catch(e){return err(e.message||'PM PRINT database schema is unavailable.',503);}
   const url=new URL(request.url),origin=url.origin,apiPrefix='/api/pmprint';
 
@@ -391,7 +426,7 @@ async function handle(request, env){
       const r=await env.DB.prepare('SELECT * FROM orders WHERE id=?').bind(clean(data.orderId).toUpperCase()).first();if(!r)throw new Error('Order ID was not found.');
       return json({success:true,order:rowOrder(r,origin,apiPrefix)});
     }
-    if(action==='getLocations')return json({success:true,locations:await getLocations(env,true)});
+    if(action==='getLocations'){const locations=await getLocations(env,true);return json({success:true,locations,_diagnostic:{source:env.PM_DB?'PM_DB':(env.DB?'DB':'NO_DATABASE_BINDING'),table:'locations',httpStatus:200}});}
     if(action==='getPricing')return json({success:true,pricing:await getPricing(env)});
     if(action==='validateVoucher'){
       const p=await getPricing(env),pages=Math.max(1,Math.floor(num(data.pages,1))),copies=Math.max(1,Math.floor(num(data.copies,1)));
