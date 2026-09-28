@@ -3623,6 +3623,7 @@ function pmPageResultFromMetrics(metrics,pageNo,meta={}){
   return {page_number:pageNo,classification:meta.classification||'',ocr:!!meta.ocr,color:color>.001,ink:inkArea,inkArea,blackCoverage:black,colorCoverage:color,cyanCoverage:pmClamp01(m.cyan),magentaCoverage:pmClamp01(m.magenta),yellowCoverage:pmClamp01(m.yellow),visualDensity:pmClamp01(m.density),coverageDistribution:pmClamp01(m.distribution),bboxCoverage:pmClamp01(m.bbox),edgeDensity:pmClamp01(m.edgeDensity),confidence:Number(meta.confidence??metrics.confidence)||0,analysisMethod:metrics.ambiguous?'FAST+ACCURACY':'FAST+CONSENSUS',visualType:meta.visualType||'',textCount:Number(meta.textCount||0),imageObjects:Number(meta.imageObjects||0),vectorObjects:Number(meta.vectorObjects||0),blank:!!meta.blank};
 }
 function pmCoverageCategory(v){v=pmClamp01(v);return v<.10?'Low':v<.40?'Moderate':v<.75?'High':'Very High';}
+function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]||m));}
 function pmEscape(v){return typeof escapeHtml==='function'?escapeHtml(String(v??'')):String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 function pmMoney(v){return pmWholeMoney(v);}
 function renderPmInkAnalysis(rows){
