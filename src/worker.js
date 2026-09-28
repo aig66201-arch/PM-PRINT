@@ -319,8 +319,12 @@ async function handle(request, env){
     }else url.searchParams.forEach((v,k)=>data[k]=v);
 
     if(action==='adminLogin'){
-      const username=clean(data.username),password=String(data.password||''),configured=env.ADMIN_PASSWORD||'';
-      if(username!==(env.ADMIN_USERNAME||'admin')||password!==configured)return json({success:false,error:'Invalid username or password.'},401);
+      const username=clean(data.username);
+      const password=String(data.password||'');
+      const configuredUsername=clean(env.PM_ADMIN_USERNAME||'');
+      const configuredPassword=String(env.PM_ADMIN_PASSWORD||'');
+      if(!configuredUsername||!configuredPassword)return err('PM PRINT administrator credentials are not configured in Cloudflare Worker Secrets.',503);
+      if(username!==configuredUsername||password!==configuredPassword)return json({success:false,error:'Invalid username or password.'},401);
       const token=crypto.randomUUID()+crypto.randomUUID(),th=await sha256(token),exp=new Date(Date.now()+8*3600*1000).toISOString();
       await env.DB.prepare('INSERT INTO sessions(token_hash,username,name,role,permissions,created_at,expires_at) VALUES(?,?,?,?,?,?,?)').bind(th,username,'Administrator','Administrator','ALL',now(),exp).run();
       return json({success:true},200,{'set-cookie':cookie(env.ADMIN_COOKIE,token,{maxAge:28800})});
