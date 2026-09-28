@@ -3349,15 +3349,28 @@ window.addEventListener('pageshow',event=>{
     const rows=Array.isArray(result?.locations)?result.locations:[];
     const invalidRows=rows.filter(x=>!x||x.active===false||!String(x.id||'').trim()||!String(x.name||'').trim());
     window.deliveryLocations=rows.filter(x=>x&&x.active!==false&&String(x.id||'').trim()&&String(x.name||'').trim());
+    if(diagnostic){
+      const source=String(result?._diagnostic?.source||'unknown');
+      const table=String(result?._diagnostic?.table||'locations');
+      const responseShape=Array.isArray(result?.locations)?'locations[]':'MISSING locations[]';
+      const rowSummary=rows.slice(0,20).map((x,i)=>{
+        if(!x)return '#'+(i+1)+': <null row>';
+        return '#'+(i+1)+' id='+JSON.stringify(x.id??'')+' | name='+JSON.stringify(x.name??'')+' | fee='+JSON.stringify(x.fee??'')+' | active='+JSON.stringify(x.active??'');
+      }).join('\n');
+      diagnostic.dataset.baseDetails='Endpoint: GET /api/pmprint/getLocations\nHTTP: '+(result?._diagnostic?.httpStatus||'200')+'\nSource: '+source+'\nTable: '+table+'\nResponse: '+responseShape+'\nRows returned: '+rows.length+'\nUsable active rows: '+window.deliveryLocations.length+(rowSummary?'\n\nReturned rows (first 20):\n'+rowSummary:'\n\nReturned rows: <none>');
+    }
     if(!window.deliveryLocations.length){
       select.innerHTML='<option value="">No delivery locations available</option>';
       if(diagnostic){
         diagnostic.style.display='block';
-        diagnostic.textContent='Server connection succeeded, but no usable active delivery locations were returned. Total rows returned: '+rows.length+'. Invalid/inactive rows: '+invalidRows.length+'. Check Admin → Delivery Locations and confirm at least one location is active and has both an ID and name.';
+        diagnostic.textContent='DELIVERY LOCATION ERROR\n\n'+(diagnostic.dataset.baseDetails||'No diagnostic details returned.')+'\n\nProblem: The server responded, but PM PRINT could not find a usable active location.\nCheck Admin → Delivery Locations, then compare the returned ID/name/active values above.';
       }
     }else{
       select.innerHTML='<option value="">Select location</option>'+window.deliveryLocations.map(x=>'<option value="'+escapeHtml(String(x.id))+'">'+escapeHtml(String(x.name))+' — '+pmWholeMoney(x.fee)+'</option>').join('');
-      if(diagnostic){diagnostic.style.display='none';diagnostic.textContent='';}
+      if(diagnostic){
+        diagnostic.style.display='none';
+        diagnostic.textContent='';
+      }
     }
     updateDeliveryNote();
     updatePrice();
@@ -3367,7 +3380,7 @@ window.addEventListener('pageshow',event=>{
     select.innerHTML='<option value="">Delivery locations unavailable</option>';
     if(diagnostic){
       diagnostic.style.display='block';
-      diagnostic.textContent='ERROR: '+(e?.message||String(e));
+      diagnostic.textContent='DELIVERY LOCATION ERROR\n\n'+(diagnostic.dataset.baseDetails||'Endpoint: GET /api/pmprint/getLocations\nNo successful location response was received.')+'\n\nRequest error: '+(e?.message||String(e))+'\n\nGET error: '+(getError?.message||'none')+'\nPOST fallback error: '+(postError?.message||'none')+'\n\nIf Admin can see a location but this box shows 0 rows, the customer page and Admin are likely reading different deployed code/database bindings.';
     }
     console.error('PM PRINT delivery-location diagnostic:',{error:e,getError,postError,url:'/api/pmprint/getLocations',page:location.href});
   }
@@ -3435,7 +3448,19 @@ $('file').addEventListener('input',handleFileInputChange);
                                                                                                                                                                                                                                                                                            $('paper').addEventListener('change',()=>{updatePrice();updateSubmitState()});
 $('student').addEventListener('input',updateSubmitState);
 $('contact').addEventListener('input',updateSubmitState);
-$('location').addEventListener('change',()=>{updateDeliveryNote();updatePrice();updateSubmitState();});
+$('location').addEventListener('change',()=>{
+  const selectedId=String($('location')?.value||'');
+  const selected=(window.deliveryLocations||[]).find(x=>String(x.id)===selectedId);
+  const diagnostic=$('deliveryLocationDiagnostic');
+  if(selectedId&&!selected&&diagnostic){
+    diagnostic.style.display='block';
+    diagnostic.textContent='DELIVERY LOCATION ERROR\n\nThe selected option ID '+JSON.stringify(selectedId)+' was not found in the locations returned by the server.\n\n'+(diagnostic.dataset.baseDetails||'No response diagnostics available.')+'\n\nThis usually means the location ID in the customer page does not match the location ID returned by /api/pmprint/getLocations.';
+  }else if(selected&&diagnostic){
+    diagnostic.style.display='none';
+    diagnostic.textContent='';
+  }
+  updateDeliveryNote();updatePrice();updateSubmitState();
+});
                                                                                                                                                                                                                                                                                            document.querySelectorAll('input[name="fulfillment"]').forEach(function(x){x.addEventListener('change',function(){
                                                                                                                                                                                                                                                                                              const delivery=this.value==='Delivery';
                                                                                                                                                                                                                                                                                                $('locationField').style.display=delivery?'block':'none';
@@ -4137,7 +4162,7 @@ function calculatePriceResult(){
     const paperCost=sheets*Number(paper),printCost=printedSides*printRate;result={total:paperCost+printCost,sheets,printedSides,paperCost,printCost};
   }
   const fulfillment=document.querySelector('input[name="fulfillment"]:checked')?.value||'Pickup';
-  const deliveryFee=fulfillment==='Delivery'?Number((window.deliveryLocations||[]).find(x=>x.name===$('location')?.value)?.fee||0):0;
+  const deliveryFee=fulfillment==='Delivery'?Number((window.deliveryLocations||[]).find(x=>String(x.id)===String($('location')?.value||''))?.fee||0):0;
   const rows=window.pmInkAnalysisRows||[];
   const selected=new Set(pageSelection.pages.length?pageSelection.pages:rows.map(x=>x.page_number));
   const selectedRows=rows.filter(x=>selected.has(x.page_number));
