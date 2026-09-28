@@ -2884,6 +2884,7 @@
           <div class="field" id="locationField" style="display:none"><label>DELIVERY LOCATION</label><select id="location">
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       <option value="">Select location</option>
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       </select>
+            <div id="deliveryLocationDiagnostic" style="display:none;margin-top:8px;background:#fff0ed;border:1px solid #f0c9c1;color:#7e3024;border-radius:10px;padding:10px;font-size:10px;line-height:1.5;word-break:break-word"></div>
           </div>
           <div class="field">
             <label>DELIVERY NOTES</label><textarea id="notes" placeholder="Room, building, landmark, preferred time, etc."></textarea>
@@ -3312,28 +3313,47 @@ window.addEventListener('pageshow',event=>{
                                                                                                                                                                                                                                                                                            
                                                                                                                                                                                                                                                                                            async function loadCustomerLocations(){
   const select=$('location');
+  const diagnostic=$('deliveryLocationDiagnostic');
   if(!select)return;
+  if(diagnostic){diagnostic.style.display='none';diagnostic.textContent='';}
   select.innerHTML='<option value="">Loading delivery locations…</option>';
   window.deliveryLocations=[];
-  let lastError=null;
+  let getError=null;
+  let postError=null;
   try{
     let result=null;
     try{
       const res=await fetch('/api/pmprint/getLocations',{method:'GET',credentials:'same-origin',cache:'no-store'});
       let data={};
-      try{data=await res.json();}catch(_){throw new Error('The delivery-location server returned an invalid response.');}
-      if(!res.ok||data.success===false)throw new Error(data.error||'Unable to load delivery locations.');
+      const raw=await res.text();
+      try{data=raw?JSON.parse(raw):{};}catch(_){
+        throw new Error('GET /api/pmprint/getLocations returned HTTP '+res.status+' with a non-JSON response: '+(raw||'[empty response]').slice(0,300));
+      }
+      if(!res.ok||data.success===false){
+        throw new Error('GET /api/pmprint/getLocations returned HTTP '+res.status+': '+(data.error||'Unknown server error.'));
+      }
       result=data;
     }catch(e){
-      lastError=e;
-      result=await apiGet('getLocations');
+      getError=e;
+      try{
+        result=await apiGet('getLocations');
+      }catch(fallbackError){
+        postError=fallbackError;
+        throw new Error('Delivery locations failed to load. GET error: '+(getError?.message||getError)+' | POST fallback error: '+(postError?.message||postError));
+      }
     }
     const rows=Array.isArray(result?.locations)?result.locations:[];
+    const invalidRows=rows.filter(x=>!x||x.active===false||!String(x.id||'').trim()||!String(x.name||'').trim());
     window.deliveryLocations=rows.filter(x=>x&&x.active!==false&&String(x.id||'').trim()&&String(x.name||'').trim());
     if(!window.deliveryLocations.length){
       select.innerHTML='<option value="">No delivery locations available</option>';
+      if(diagnostic){
+        diagnostic.style.display='block';
+        diagnostic.textContent='Server connection succeeded, but no usable active delivery locations were returned. Total rows returned: '+rows.length+'. Invalid/inactive rows: '+invalidRows.length+'. Check Admin → Delivery Locations and confirm at least one location is active and has both an ID and name.';
+      }
     }else{
       select.innerHTML='<option value="">Select location</option>'+window.deliveryLocations.map(x=>'<option value="'+escapeHtml(String(x.id))+'">'+escapeHtml(String(x.name))+' — '+pmWholeMoney(x.fee)+'</option>').join('');
+      if(diagnostic){diagnostic.style.display='none';diagnostic.textContent='';}
     }
     updateDeliveryNote();
     updatePrice();
@@ -3341,7 +3361,11 @@ window.addEventListener('pageshow',event=>{
   }catch(e){
     window.deliveryLocations=[];
     select.innerHTML='<option value="">Delivery locations unavailable</option>';
-    console.warn('Could not load delivery locations',e,lastError);
+    if(diagnostic){
+      diagnostic.style.display='block';
+      diagnostic.textContent='ERROR: '+(e?.message||String(e));
+    }
+    console.error('PM PRINT delivery-location diagnostic:',{error:e,getError,postError,url:'/api/pmprint/getLocations',page:location.href});
   }
 }
 
