@@ -2707,12 +2707,42 @@
 <style id="pmprint-splash-nav-styles">
 html,body{scroll-behavior:smooth}body.pmprint-booting{overflow:hidden}
 #pmPrintSplash{position:fixed;inset:0;z-index:5000;background:linear-gradient(145deg,#f7fff9,#e8f6ed);display:flex;align-items:center;justify-content:center;padding:24px;transition:opacity .28s ease,visibility .28s ease}#pmPrintSplash.hide{opacity:0;visibility:hidden;pointer-events:none}.pm-splash-card{width:min(360px,92vw);text-align:center;background:#fff;border:1px solid #dcebe1;border-radius:24px;padding:30px 24px;box-shadow:0 20px 60px rgba(20,70,40,.12)}.pm-splash-logo{width:82px;height:82px;object-fit:contain;border-radius:20px;margin:0 auto 15px;display:block}.pm-splash-title{font-size:24px;font-weight:900;color:#087a40}.pm-splash-sub{margin:7px 0 18px;color:#6f7d75;font-size:11px;line-height:1.5}.pm-splash-loader{width:100%;height:5px;background:#e8f0eb;border-radius:99px;overflow:hidden}.pm-splash-loader span{display:block;height:100%;width:38%;background:#087a40;border-radius:99px;animation:pmSplashLoad 1.05s ease-in-out infinite}@keyframes pmSplashLoad{0%{transform:translateX(-130%)}100%{transform:translateX(290%)}}
-#pmPrintLoginGate{position:fixed;inset:0;z-index:4900;background:rgba(247,255,249,.98);display:none;align-items:center;justify-content:center;padding:20px}#pmPrintLoginGate.show{display:flex}.pm-login-gate-card{width:min(420px,94vw);background:#fff;border:1px solid #dcebe1;border-radius:22px;padding:24px;box-shadow:0 20px 60px rgba(20,70,40,.14)}.pm-login-gate-card h2{margin:0 0 6px;color:#087a40;font-size:24px}.pm-login-gate-card p{margin:0 0 17px;color:#6f7d75;font-size:11px;line-height:1.55}.pm-login-gate-card .field{margin:11px 0}.pm-login-gate-card .field label{display:block;font-size:10px;font-weight:900;margin-bottom:5px;color:#4b5a52}.pm-login-gate-card input{width:100%;box-sizing:border-box}.pm-login-actions{display:grid;gap:9px;margin-top:14px}.pm-login-error{display:none;margin-top:10px;padding:10px 12px;border-radius:10px;background:#fff0f0;color:#a51d1d;font-size:11px;line-height:1.4}.pm-login-error.show{display:block}
+#pmPrintLoginGate{position:fixed;inset:0;z-index:4900;background:rgba(247,255,249,.98);display:none;align-items:center;justify-content:center;padding:20px}#pmPrintLoginGate.show{display:flex}.pm-login-gate-card{position:relative;width:min(420px,94vw);background:#fff;border:1px solid #dcebe1;border-radius:22px;padding:24px;box-shadow:0 20px 60px rgba(20,70,40,.14)}.pm-login-gate-card h2{margin:0 0 6px;color:#087a40;font-size:24px}.pm-login-gate-card p{margin:0 0 17px;color:#6f7d75;font-size:11px;line-height:1.55}.pm-login-gate-card .field{margin:11px 0}.pm-login-gate-card .field label{display:block;font-size:10px;font-weight:900;margin-bottom:5px;color:#4b5a52}.pm-login-gate-card input{width:100%;box-sizing:border-box}.pm-login-actions{display:grid;gap:9px;margin-top:14px}.pm-login-error{display:none;margin-top:10px;padding:10px 12px;border-radius:10px;background:#fff0f0;color:#a51d1d;font-size:11px;line-height:1.4}.pm-login-error.show{display:block}
 #pmBottomNav{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:1200;width:min(430px,calc(100vw - 24px));display:none;grid-template-columns:1fr 1fr;gap:6px;padding:7px;background:rgba(255,255,255,.96);border:1px solid #dcebe1;border-radius:18px;box-shadow:0 10px 30px rgba(20,70,40,.16);backdrop-filter:blur(12px)}#pmBottomNav.show{display:grid}.pm-bottom-btn{border:0;background:transparent;border-radius:13px;padding:9px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#68766e;font:inherit;cursor:pointer}.pm-bottom-btn.active{background:#e9f7ee;color:#087a40;font-weight:900}.pm-bottom-icon{font-size:18px;line-height:1}.pm-bottom-label{font-size:9px;font-weight:800}body{padding-bottom:82px}
 </style>
 </head>
 
-<body class="pm-print-page">
+<body class="pm-print-page pmprint-booting">
+  <!-- PM PRINT startup splash: this is intentionally the first visible UI. -->
+  <div id="pmPrintSplash" aria-live="polite" aria-label="PM PRINT loading">
+    <div class="pm-splash-card">
+      <img class="pm-splash-logo" src="/assets/pmprintlogo.png" alt="PM PRINT">
+      <div class="pm-splash-title">PM PRINT</div>
+      <div class="pm-splash-sub" id="pmSplashText">Preparing PM PRINT…</div>
+      <div class="pm-splash-loader" aria-hidden="true"><span></span></div>
+    </div>
+  </div>
+
+  <!-- Account-management login gate. It is shown after the splash when login is required. -->
+  <div id="pmPrintLoginGate" role="dialog" aria-modal="true" aria-labelledby="pmGateTitle">
+    <div class="pm-login-gate-card">
+      <button type="button" onclick="pmCloseLoginGate()" aria-label="Close login" title="Close" style="position:absolute;right:16px;top:16px;width:36px;height:36px;border:1px solid #dcebe1;border-radius:50%;background:#fff;color:#53635a;font-size:24px;line-height:1;cursor:pointer">&times;</button>
+      <h2 id="pmGateTitle">Login to PM PRINT</h2>
+      <p>Account Management is enabled. Log in to continue using account features and placing printing orders.</p>
+      <div class="field"><label>USERNAME</label><input id="pmGateUsername" autocomplete="username" placeholder="Username"></div>
+      <div class="field"><label>PASSWORD</label><input id="pmGatePassword" type="password" autocomplete="current-password" placeholder="Password"></div>
+      <label style="font-size:11px;display:flex;gap:7px;align-items:center"><input id="pmGateRemember" type="checkbox"> Remember me for 30 days</label>
+      <div class="pm-login-actions"><button class="submit" type="button" onclick="pmGateLogin(this)">Login</button></div>
+      <div id="pmGateLoginError" class="pm-login-error"></div>
+    </div>
+  </div>
+
+  <!-- Customer bottom navigation -->
+  <nav id="pmBottomNav" aria-label="PM PRINT navigation">
+    <button id="pmNavHome" class="pm-bottom-btn active" type="button" onclick="pmNavigateHome()"><span class="pm-bottom-icon">⌂</span><span class="pm-bottom-label">Home</span></button>
+    <button id="pmNavProfile" class="pm-bottom-btn" type="button" onclick="pmNavigateProfile()"><span class="pm-bottom-icon">♙</span><span class="pm-bottom-label">Profile</span></button>
+  </nav>
+
   <header class="mobile-header">
     <div class="header-brand">
       <div class="header-logo pm-logo-wrap"><img src="/assets/pmprintlogo.png" alt="PM PRINT logo"></div>
@@ -2768,7 +2798,7 @@ html,body{scroll-behavior:smooth}body.pmprint-booting{overflow:hidden}
       <section>
         <div class="card">
           <h2>1. Upload your document</h2>
-          <div class="drop" id="drop" onclick="document.getElementById('file').click()">
+          <div class="drop" id="drop" onclick="pmRequestFileAttach(event)">
             <div class="big">&#128196;</div>
             <b>Drop a file here or tap to choose</b><small>PDF and image files are accepted.<br><b>Word and PowerPoint files are not accepted.</b> Convert them to PDF first to preserve fonts, margins, and layout. Maximum file size: 20 MB.</small>
             <input id="file" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,image/*,application/pdf">
@@ -3421,11 +3451,12 @@ async function handleFileInputChange(event){const input=event&&event.target?even
   }
   const token=++pmAnalysisRunId;analysisState.token=token;analysisState.status='analyzing';analysisState.file=file;analysisState.error=null;selectedFile=file;window.pmInkAnalysisRows=[];window.pmLocalFileHash='';detectedReady=false;analyzedPages=0;lockContentType(false);setUploadProgress('hidden',0,'');$('fileBox').classList.add('show');$('fileName').textContent=file.name;$('fileSize').textContent=(file.size/1024/1024).toFixed(2)+' MB';$('fileIcon').textContent=(file.name.split('.').pop()||'FILE').toUpperCase().slice(0,5);$('analysis').classList.add('show');$('analysisStatus').textContent='Analyzing locally…';updateSubmitState();
   try{await analyzeFile(file,false,{token});if(analysisState.token===token){analysisState.status='complete';await hashFile(file).then(x=>{if(analysisState.token===token)window.pmLocalFileHash=x;});}}catch(e){if(analysisState.token!==token||e?.code==='ANALYSIS_SUPERSEDED')return;analysisState.status='failed';analysisState.error=e;console.error('PMPRINT local analysis error:',e);showToast(e.message||'Could not analyze the file.');updateSubmitState();}}
+$('file').addEventListener('click',pmBlockUnauthorizedFileInput,true);
 $('file').addEventListener('change',handleFileInputChange);
 $('file').addEventListener('input',handleFileInputChange);
                                                                                                                                                                                                                                                                                            $('drop').addEventListener('dragover',e=>{e.preventDefault();$('drop').classList.add('drag')});
                                                                                                                                                                                                                                                                                            $('drop').addEventListener('dragleave',()=>$('drop').classList.remove('drag'));
-                                                                                                                                                                                                                                                                                           $('drop').addEventListener('drop',e=>{e.preventDefault();$('drop').classList.remove('drag');const f=e.dataTransfer.files[0];if(f){const dt=new DataTransfer();dt.items.add(f);$('file').files=dt.files;handleFileInputChange({target:$('file')})}});
+                                                                                                                                                                                                                                                                                           $('drop').addEventListener('drop',e=>{e.preventDefault();$('drop').classList.remove('drag');if(window.pmAccountManagement&&!window.pmCustomer){pmShowLoginGate();showToast('Please log in to attach a file.');return}const f=e.dataTransfer.files[0];if(f){const dt=new DataTransfer();dt.items.add(f);$('file').files=dt.files;handleFileInputChange({target:$('file')})}});
                                                                                                                                                                                                                                                                                            radios().forEach(x=>x.addEventListener('change',()=>{if(x.name==='format') syncBookletSides(); else updatePrice()}));
                                                                                                                                                                                                                                                                                            ['copies','binding'].forEach(id=>$(id).addEventListener('input',updatePrice));
                                                                                                                                                                                                                                                                                            $('paper').addEventListener('change',()=>{updatePrice();updateSubmitState()});
@@ -4643,8 +4674,11 @@ function showToast(t){$('toast').textContent=t;$('toast').classList.add('show');
 window.pmAccountManagement=false;window.pmCustomer=null;window.pmAccountStateReady=false;window.pmLoginRequired=false;
 function pmSetSplashText(t){const e=$('pmSplashText');if(e)e.textContent=t}
 function pmHideSplash(){const e=$('pmPrintSplash');if(!e)return;document.body.classList.remove('pmprint-booting');e.classList.add('hide');setTimeout(()=>e.remove(),350)}
-function pmShowLoginGate(){window.pmLoginRequired=true;$('pmPrintLoginGate')?.classList.add('show');$('pmBottomNav')?.classList.remove('show');setTimeout(()=>$('pmGateUsername')?.focus(),80)}
+function pmShowLoginGate(){if(!window.pmAccountManagement||window.pmCustomer)return;window.pmLoginRequired=true;$('pmPrintLoginGate')?.classList.add('show');$('pmBottomNav')?.classList.remove('show');setTimeout(()=>$('pmGateUsername')?.focus(),80)}
 function pmHideLoginGate(){window.pmLoginRequired=false;$('pmPrintLoginGate')?.classList.remove('show');$('pmBottomNav')?.classList.add('show')}
+function pmCloseLoginGate(){if(!window.pmAccountManagement||window.pmCustomer){pmHideLoginGate();return}window.pmLoginRequired=false;$('pmPrintLoginGate')?.classList.remove('show');$('pmBottomNav')?.classList.add('show');pmSetAccountMenu();}
+function pmRequestFileAttach(event){if(event){event.preventDefault();event.stopPropagation()}if(window.pmAccountManagement&&!window.pmCustomer){pmShowLoginGate();showToast('Please log in to attach a file.');return false}const input=$('file');if(input)input.click();return false}
+function pmBlockUnauthorizedFileInput(event){if(window.pmAccountManagement&&!window.pmCustomer){event.preventDefault();event.stopPropagation();pmShowLoginGate();showToast('Please log in to attach a file.');return false}return true}
 function pmSetAccountMenu(){const b=$('customerAccountMenu'),t=$('customerAccountMenuText');if(!b)return;if(!window.pmAccountManagement){b.classList.add('account-hidden');return}b.classList.remove('account-hidden');if(t)t.textContent=window.pmCustomer?'My Profile':'Login'}
 function pmRenderProfileBox(){const b=$('customerProfileBox'),c=window.pmCustomer;if(!b||!c)return;b.innerHTML='<b>'+escapeHtml(c.name||'Customer')+'</b><small>@'+escapeHtml(c.username||'')+'</small>'+(c.phone?'<div style="margin-top:6px;font-size:11px">'+escapeHtml(c.phone)+'</div>':'')}
 function openCustomerAccount(){if(!window.pmAccountManagement){showToast('Customer profiles are unavailable while Account Management is off.');return}const m=$('accountModal');if(!m)return;m.classList.add('show');const l=$('accountLoginView'),p=$('accountProfileView');if(window.pmCustomer){l?.classList.add('account-hidden');p?.classList.remove('account-hidden');pmRenderProfileBox()}else{l?.classList.remove('account-hidden');p?.classList.add('account-hidden')}}
