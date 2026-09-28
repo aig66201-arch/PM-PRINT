@@ -3311,18 +3311,37 @@ window.addEventListener('pageshow',event=>{
                                                                                                                                                                                                                                                                                            function syncBookletSides(){const booklet=getRadio('format')==='Booklet';$('double').checked=booklet; $('single').checked=!booklet; $('double').disabled=booklet; $('single').disabled=booklet; updatePrice()}
                                                                                                                                                                                                                                                                                            
                                                                                                                                                                                                                                                                                            async function loadCustomerLocations(){
+  const select=$('location');
+  if(!select)return;
+  select.innerHTML='<option value="">Loading delivery locations…</option>';
+  window.deliveryLocations=[];
+  let lastError=null;
   try{
-    const result=await apiGet('getLocations');
-    window.deliveryLocations=Array.isArray(result.locations)?result.locations.filter(x=>x&&x.active!==false):[];
-    const select=$('location'); if(!select)return;
-    select.innerHTML='<option value="">Select location</option>'+window.deliveryLocations.map(x=>'<option value="'+escapeHtml(String(x.id||''))+'">'+escapeHtml(String(x.name||''))+' — '+pmWholeMoney(x.fee)+'</option>').join('');
+    let result=null;
+    try{
+      const res=await fetch('/api/pmprint/getLocations',{method:'GET',credentials:'same-origin',cache:'no-store'});
+      let data={};
+      try{data=await res.json();}catch(_){throw new Error('The delivery-location server returned an invalid response.');}
+      if(!res.ok||data.success===false)throw new Error(data.error||'Unable to load delivery locations.');
+      result=data;
+    }catch(e){
+      lastError=e;
+      result=await apiGet('getLocations');
+    }
+    const rows=Array.isArray(result?.locations)?result.locations:[];
+    window.deliveryLocations=rows.filter(x=>x&&x.active!==false&&String(x.id||'').trim()&&String(x.name||'').trim());
+    if(!window.deliveryLocations.length){
+      select.innerHTML='<option value="">No delivery locations available</option>';
+    }else{
+      select.innerHTML='<option value="">Select location</option>'+window.deliveryLocations.map(x=>'<option value="'+escapeHtml(String(x.id))+'">'+escapeHtml(String(x.name))+' — '+pmWholeMoney(x.fee)+'</option>').join('');
+    }
     updateDeliveryNote();
     updatePrice();
     updateSubmitState();
   }catch(e){
     window.deliveryLocations=[];
-    const select=$('location'); if(select)select.innerHTML='<option value="">Delivery locations unavailable</option>';
-    console.warn('Could not load delivery locations',e);
+    select.innerHTML='<option value="">Delivery locations unavailable</option>';
+    console.warn('Could not load delivery locations',e,lastError);
   }
 }
 
