@@ -481,13 +481,14 @@ async function handle(request, env){
       return json({success:true,customer:{id:customer.id,username:customer.username,name:customer.name},vouchers:results.map(v=>({code:v.code,type:v.type,value:num(v.value),label:v.type==='percent'?`${num(v.value)}% OFF`:v.type==='fixed'?`₱${num(v.value).toFixed(2)} OFF`:'FREE DELIVERY',minSpend:num(v.min_spend),maxDiscount:v.max_discount===null?null:num(v.max_discount),maxShippingDiscount:v.max_shipping_discount===null?null:num(v.max_shipping_discount),startAt:v.start_at,endAt:v.end_at,active:!!v.active,linked:!!v.linked}))});
     }
     if(action==='setCustomerVoucherLinks'){
+      const admin=await requireAdmin(env,request);
       const cid=clean(data.customerId);if(!cid)throw new Error('Customer account is required.');
       const customer=await env.DB.prepare('SELECT id,username,name FROM pm_customers WHERE id=?').bind(cid).first();if(!customer)throw new Error('Customer account not found.');
       const codes=[...new Set((Array.isArray(data.voucherCodes)?data.voucherCodes:[]).map(x=>clean(x).toUpperCase()).filter(Boolean))];
       const valid=[];for(const code of codes){const v=await env.DB.prepare('SELECT code FROM vouchers WHERE code=?').bind(code).first();if(v)valid.push(code);}
       await env.DB.prepare('DELETE FROM pm_customer_vouchers WHERE customer_id=?').bind(cid).run();
       for(const code of valid)await env.DB.prepare('INSERT INTO pm_customer_vouchers(customer_id,voucher_code,assigned_at,created_at,updated_at) VALUES(?,?,?,?,?)').bind(cid,code,now(),now(),now()).run();
-      await accountActivity(env,customer,'VOUCHERS_UPDATED',`Administrator linked ${valid.length} voucher(s) to this account.`,request);await log(env,user.username,'CUSTOMER_VOUCHERS_UPDATED',`Updated vouchers for customer ${customer.username}.`);
+      await accountActivity(env,customer,'VOUCHERS_UPDATED',`Administrator linked ${valid.length} voucher(s) to this account.`,request);await log(env,admin.username,'CUSTOMER_VOUCHERS_UPDATED',`Updated vouchers for customer ${customer.username}.`);
       return {success:true,customerId:cid,linked:valid};
     }
     if(action==='adminSession'){const session=await requireAdmin(env,request);return json({success:true,authenticated:true,username:session.username||''});}
