@@ -3302,7 +3302,8 @@ function getVoucherDeviceId(){
                                                                                                                                                                                                                                                                                            
 document.addEventListener('DOMContentLoaded',()=>{
   loadAccountState();
-loadCustomerLocations();
+  loadCustomerLocations();
+  setTimeout(()=>loadCustomerLocations(),800);
   // Always start a fresh session with no attached file and no estimated price.
   resetFileAfterSuccessfulOrder();
 });
@@ -3429,12 +3430,14 @@ $('location').addEventListener('change',()=>{
   updatePrice();
   updateSubmitState();
 });
-document.querySelectorAll('input[name="fulfillment"]').forEach(function(x){x.addEventListener('change',function(){
-                                                                                                                                                                                                                                                                                             const delivery=this.value==='Delivery';
-                                                                                                                                                                                                                                                                                               $('locationField').style.display=delivery?'block':'none';
-                                                                                                                                                                                                                                                                                                 updateDeliveryNote();
-                                                                                                                                                                                                                                                                                                   updatePrice();
-                                                                                                                                                                                                                                                                                                   })});$('manualPages').addEventListener('input',()=>{if(selectedFile&&/\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(selectedFile.name)){analyzedPages=Math.max(1,+$('manualPages').value||1);detectedReady=true;updatePrice();updateSubmitState()}}); $('pageSelection').addEventListener('input',()=>{updatePageSelectionStatus();updatePrice();updateSubmitState()});
+document.querySelectorAll('input[name="fulfillment"]').forEach(function(x){x.addEventListener('change',async function(){
+  const delivery=this.value==='Delivery';
+  $('locationField').style.display=delivery?'block':'none';
+  if(delivery) await loadCustomerLocations();
+  updateDeliveryNote();
+  updatePrice();
+  updateSubmitState();
+})});$('manualPages').addEventListener('input',()=>{if(selectedFile&&/\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(selectedFile.name)){analyzedPages=Math.max(1,+$('manualPages').value||1);detectedReady=true;updatePrice();updateSubmitState()}}); $('pageSelection').addEventListener('input',()=>{updatePageSelectionStatus();updatePrice();updateSubmitState()});
                                                                                                                                                                                                                                                                                                    
                                                                                                                                                                                                                                                                                                    
                                                                                                                                                                                                                                                                                                    const LOCAL_DB_NAME='PMPrintLocal';
