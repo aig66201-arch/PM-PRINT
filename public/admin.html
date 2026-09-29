@@ -2405,6 +2405,35 @@
 }
 
 /* ADMIN MODULE DRAWERS */
+
+/* PM PRINT ADMIN HAMBURGER NAVIGATION */
+.admin-hamburger-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin-bottom:14px;background:#082d68;color:#fff;border:2px solid #0b3f91;border-radius:4px;box-shadow:4px 4px 0 rgba(8,45,104,.16);position:sticky;top:10px;z-index:80}
+.admin-hamburger-brand{display:flex;align-items:center;gap:10px;min-width:0}
+.admin-hamburger-brand img{width:38px;height:38px;object-fit:contain;background:#fff;border:2px solid #64a4ff;border-radius:3px;image-rendering:pixelated;flex:0 0 auto}
+.admin-hamburger-brand b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.admin-hamburger-brand small{display:block;font-size:8px;color:#cfe2ff;margin-top:2px}
+.admin-hamburger-actions{display:flex;align-items:center;gap:7px;flex:0 0 auto}
+.admin-hamburger-btn{width:42px;height:42px;border:2px solid #64a4ff;background:#104a9d;color:#fff;border-radius:3px;box-shadow:2px 2px 0 #031b43;font-size:22px;cursor:pointer;display:grid;place-items:center}
+.admin-hamburger-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #031b43}
+.admin-menu-drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:900;opacity:0;visibility:hidden;pointer-events:none;transition:.2s ease}
+.admin-menu-drawer-overlay.open{opacity:1;visibility:visible;pointer-events:auto}
+.admin-menu-drawer{position:fixed;top:0;left:0;width:min(88vw,350px);height:100dvh;background:#f7fbff;z-index:901;transform:translate3d(-105%,0,0);visibility:hidden;pointer-events:none;transition:transform .25s ease,visibility 0s linear .25s;box-shadow:8px 0 30px rgba(0,0,0,.22);display:flex;flex-direction:column;border-right:3px solid #6ea7ea}
+.admin-menu-drawer.open{transform:translate3d(0,0,0);visibility:visible;pointer-events:auto;transition:transform .25s ease,visibility 0s linear 0s}
+.admin-menu-drawer-head{padding:18px 16px;background:#082d68;color:#fff;border-bottom:2px solid #0b3f91;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.admin-menu-drawer-head .brand{display:flex;align-items:center;gap:10px;min-width:0}
+.admin-menu-drawer-head img{width:42px;height:42px;background:#fff;border:2px solid #64a4ff;border-radius:3px;object-fit:contain;image-rendering:pixelated}
+.admin-menu-drawer-head b{display:block;font-size:13px}.admin-menu-drawer-head small{display:block;font-size:8px;color:#cfe2ff;margin-top:3px}
+.admin-menu-close{width:36px;height:36px;border:2px solid #64a4ff;background:#104a9d;color:#fff;border-radius:3px;font-size:22px;cursor:pointer}
+.admin-menu-list{padding:12px;overflow:auto;flex:1}
+.admin-menu-item{width:100%;border:2px solid transparent;background:#fff;color:#10233f;padding:12px;border-radius:4px;display:flex;align-items:center;gap:11px;text-align:left;cursor:pointer;margin-bottom:7px;box-shadow:2px 2px 0 rgba(8,45,104,.06)}
+.admin-menu-item:hover,.admin-menu-item:focus-visible{background:#eaf3ff;border-color:#79abe8;color:#0b3f91;outline:none}
+.admin-menu-item .icon{width:34px;height:34px;display:grid;place-items:center;border:1px solid #c7d8ee;background:#edf5ff;border-radius:3px;font-size:18px;flex:0 0 auto}
+.admin-menu-item b{display:block;font-size:11px}.admin-menu-item small{display:block;color:#58708f;font-size:8px;margin-top:3px;line-height:1.35}
+.admin-menu-footer{padding:12px;border-top:1px solid #c7d8ee;display:grid;gap:7px}
+.admin-menu-footer button{width:100%;padding:11px;border-radius:3px;border:2px solid #0b3f91;background:#1565d8;color:#fff;font-weight:900;cursor:pointer;box-shadow:2px 2px 0 #06265b}
+.admin-menu-footer button.secondary{background:#fff;color:#0b3f91;border-color:#8bb8ed;box-shadow:none}
+.admin-module-menu{display:none!important}
+@media(max-width:600px){.admin-hamburger-bar{top:6px;margin-left:2px;margin-right:2px}.admin-hamburger-brand small{display:none}.admin-hamburger-brand b{font-size:12px}.admin-menu-drawer{width:min(92vw,360px)}}
 .admin-module-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}.admin-module-menu button{border:1px solid var(--line);background:#fff;border-radius:16px;padding:16px;text-align:left;display:grid;grid-template-columns:38px 1fr;grid-template-rows:auto auto;column-gap:10px;cursor:pointer;box-shadow:0 5px 18px rgba(0,0,0,.05)}.admin-module-menu button span{grid-row:1/3;font-size:25px;display:grid;place-items:center}.admin-module-menu button b{font-size:13px;color:var(--g2)}.admin-module-menu button small{font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4}.admin-module-overlay{position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:500;display:none;pointer-events:none}.admin-module-overlay.show{display:block;pointer-events:auto}.admin-module-drawer{position:fixed;z-index:501;top:0;right:0;height:100dvh;width:min(500px,94vw);background:#f7fbf8;box-shadow:-12px 0 35px rgba(0,0,0,.18);transform:translate3d(110%,0,0);visibility:hidden;pointer-events:none;transition:transform .25s ease,visibility 0s linear .25s;display:flex;flex-direction:column;will-change:transform}.admin-module-drawer.orders{width:min(900px,96vw)}.admin-module-drawer.open{transform:translate3d(0,0,0);visibility:visible;pointer-events:auto;transition:transform .25s ease,visibility 0s linear 0s}.admin-module-head{padding:18px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.admin-module-head b{display:block;font-size:17px;color:var(--g2)}.admin-module-head small{display:block;color:var(--muted);font-size:10px;line-height:1.4;margin-top:4px}.admin-module-head button{width:36px;height:36px;border:1px solid var(--line);border-radius:50%;background:#fff;font-size:25px;line-height:1;cursor:pointer}.admin-module-body{padding:16px;overflow:auto;flex:1}.admin-module-body .admin-card{margin-bottom:12px}.admin-order-details{margin-top:10px;border:1px solid var(--line);border-radius:12px;background:#fbfdfb;overflow:hidden}.admin-order-details summary{cursor:pointer;padding:10px 12px;font-weight:800;font-size:11px;color:var(--g2);list-style:none}.admin-order-details summary::-webkit-details-marker{display:none}.admin-order-details summary:before{content:'＋';margin-right:6px}.admin-order-details[open] summary:before{content:'−'}.admin-detail-group{margin:0 10px 10px;border-top:1px solid #e5ece7;padding-top:9px}.admin-detail-group:first-child{border-top:0}.admin-detail-title{font-size:9px;font-weight:900;letter-spacing:.06em;color:var(--muted);margin-bottom:7px}.admin-order-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.admin-detail-item{background:#fff;border:1px solid #e7ede9;border-radius:9px;padding:8px}.admin-detail-item small{display:block;color:var(--muted);font-size:8px;text-transform:uppercase}.admin-detail-item b{display:block;font-size:10px;margin-top:2px;word-break:break-word}.admin-order-controls{display:grid;grid-template-columns:1fr 1.5fr;gap:8px;margin-top:10px}.admin-order-controls .admin-field{margin:0}.admin-order-controls .admin-field>span{display:block;font-size:8px;font-weight:800;color:var(--muted);margin-bottom:4px}@media(max-width:767px){.admin-module-menu{grid-template-columns:1fr}.admin-module-drawer.orders{width:100%}.admin-module-drawer{width:min(92vw,420px)}.admin-module-body{padding:12px}.admin-order-grid,.admin-order-controls{grid-template-columns:1fr 1fr}.admin-bulk-toolbar{flex-wrap:wrap}.admin-bulk-toolbar select,.admin-bulk-toolbar button{width:100%}}
 
     /* ===== CUSTOMER STATUS MOBILE/RESPONSIVE FIX ===== */
@@ -2743,7 +2772,27 @@
     </div>
 
     <div id="adminDashboard" style="display:none">
-      <div class="admin-top"><div><h1>Admin Dashboard</h1><small>Choose an admin tool below. Each tool opens in its own panel.</small></div><button class="admin-btn secondary" style="width:auto;margin:0" onclick="adminLogout()">Logout</button></div>
+      <div class="admin-hamburger-bar">
+        <div class="admin-hamburger-brand"><img src="/assets/pmprintlogo.png" alt="PM PRINT"><div><b>PM PRINT Admin</b><small>Administrator Dashboard</small></div></div>
+        <div class="admin-hamburger-actions"><button class="admin-hamburger-btn" type="button" aria-label="Open admin menu" onclick="toggleAdminHamburger()">☰</button></div>
+      </div>
+      <div class="admin-menu-drawer-overlay" id="adminMenuDrawerOverlay" onclick="closeAdminHamburger()"></div>
+      <aside class="admin-menu-drawer" id="adminMenuDrawer" aria-label="Admin navigation">
+        <div class="admin-menu-drawer-head"><div class="brand"><img src="/assets/pmprintlogo.png" alt="PM PRINT"><div><b>PM PRINT Admin</b><small>Administration Menu</small></div></div><button class="admin-menu-close" type="button" aria-label="Close menu" onclick="closeAdminHamburger()">×</button></div>
+        <div class="admin-menu-list">
+          <button class="admin-menu-item" onclick="openAdminMenuModule('orders')"><span class="icon">🖨</span><span><b>Printing Orders</b><small>Filter, inspect and update orders</small></span></button>
+          <button class="admin-menu-item" onclick="openAdminMenuModule('service')"><span class="icon">⚡</span><span><b>Printing Service</b><small>Turn ordering on or off</small></span></button>
+          <button class="admin-menu-item" onclick="openAdminMenuModule('pickup')"><span class="icon">📍</span><span><b>Pickup Location</b><small>Change the pickup location</small></span></button>
+          <button class="admin-menu-item" onclick="openAdminMenuModule('pricing')"><span class="icon">💰</span><span><b>Pricing</b><small>Change printing prices by demand</small></span></button>
+          <button class="admin-menu-item" onclick="openAdminMenuModule('locations')"><span class="icon">🚚</span><span><b>Delivery Locations</b><small>Manage each location fee</small></span></button>
+          <button class="admin-menu-item" onclick="openAdminMenuModule('vouchers')"><span class="icon">🎟</span><span><b>Vouchers</b><small>Create and manage discounts</small></span></button>
+          <button class="admin-menu-item" onclick="openAdminMenuModule('accounts')"><span class="icon">👤</span><span><b>Customer Accounts</b><small>Manage customer accounts and vouchers</small></span></button>
+          <button class="admin-menu-item" onclick="openAdminMenuModule('notifications')"><span class="icon">🔔</span><span><b>Notifications</b><small>Push notifications to customers</small></span></button>
+          <button class="admin-menu-item" onclick="openAdminMenuModule('storage')"><span class="icon">📁</span><span><b>PM PRINT Storage</b><small>Manage printing-service files</small></span></button>
+        </div>
+        <div class="admin-menu-footer"><button type="button" onclick="adminLogout()">Log Out</button><button type="button" class="secondary" onclick="window.location.href='/pmprint.html'">Back to Printing Service</button></div>
+      </aside>
+      <div class="admin-top" style="display:none"><div><h1>Admin Dashboard</h1><small>Choose an admin tool below. Each tool opens in its own panel.</small></div><button class="admin-btn secondary" style="width:auto;margin:0" onclick="adminLogout()">Logout</button></div>
       <div class="admin-module-menu">
         <button onclick="openAdminModule('orders')"><span>&#128424;</span><b>Printing Orders</b><small>Filter, inspect and update orders</small></button>
         <button onclick="openAdminModule('service')"><span>&#9889;</span><b>Printing Service</b><small>Turn ordering on or off</small></button>
@@ -2887,6 +2936,22 @@ async function loadAdminDashboard(){
       }catch(e){
         adminShowToast(e.message||'Could not load admin dashboard.');
       }
+    }
+
+    function toggleAdminHamburger(){
+      const d=$('adminMenuDrawer'),o=$('adminMenuDrawerOverlay');
+      if(!d||!o)return;
+      d.classList.add('open');o.classList.add('open');
+      document.body.style.overflow='hidden';
+    }
+    function closeAdminHamburger(){
+      const d=$('adminMenuDrawer'),o=$('adminMenuDrawerOverlay');
+      if(d)d.classList.remove('open');if(o)o.classList.remove('open');
+      document.body.style.overflow='';
+    }
+    function openAdminMenuModule(name){
+      closeAdminHamburger();
+      openAdminModule(name);
     }
 
     function openAdminModule(name){ document.querySelectorAll('.admin-module-drawer').forEach(el=>el.classList.remove('open')); const el=$('adminModule_'+name); if(!el)return; $('adminModuleOverlay').classList.add('show'); el.classList.add('open'); if(name==='orders')loadAdminOrders(); if(name==='notifications')loadAdminNotificationCustomers(); }
