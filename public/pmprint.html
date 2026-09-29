@@ -4223,25 +4223,8 @@ function pmOrderInkUsage(order){if(!order)return 0;const override=Number(order.A
                                                                                                * with the required booklet printing sides.
                                                                                                   */
                                                                                                   
-                                                                                                    if(pages===1){
-                                                                                                        sheets=1;
-                                                                                                            printedSides=1;
-                                                                                                              }else if(pages===2){
-                                                                                                                  sheets=1;
-                                                                                                                      printedSides=2;
-                                                                                                                        }else if(pages===3){
-                                                                                                                            sheets=1;
-                                                                                                                                printedSides=2;
-                                                                                                                                  }else if(pages===4){
-                                                                                                                                      sheets=1;
-                                                                                                                                          printedSides=2;
-                                                                                                                                            }else if(pages===5){
-                                                                                                                                                sheets=2;
-                                                                                                                                                    printedSides=3;
-                                                                                                                                                      }else{
-                                                                                                                                                          sheets=Math.ceil(pages/2);
-                                                                                                                                                              printedSides=Math.ceil((pages+1)/2);
-                                                                                                                                                                }
+                                                                                                    sheets=Math.max(1,Math.ceil(pages/4));
+                                                                                                    printedSides=pages===1?1:(2*sheets-(pages%4===1?1:0));
                                                                                                                                                                 
                                                                                                                                                                   const paperRate=window.serverPricing?.paper_per_sheet;if(paperRate===undefined||paperRate===null||!Number.isFinite(Number(paperRate))||Number(paperRate)<0)throw new Error('PMPRINT paper pricing is unavailable.');const paperCost=sheets*Number(paperRate);
                                                                                                                                                                     const printCost=printedSides*printRate;
