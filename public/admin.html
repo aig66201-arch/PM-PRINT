@@ -2784,15 +2784,12 @@
 <style id="admin-spacing-cleanup">
 #adminDashboard{margin:0!important;padding:0!important;}
 #adminDashboard .admin-hamburger-bar{margin:0!important;border:0!important;outline:0!important;box-shadow:none!important;top:0!important;border-radius:0!important;}
-#adminDashboard .admin-main-content{margin:18px 6px 30px!important;padding:0!important;border:0!important;outline:0!important;box-shadow:none!important;width:calc(100% - 12px)!important;}
+#adminDashboard .admin-main-content{margin:0!important;padding:0!important;border:0!important;outline:0!important;box-shadow:none!important;width:100%!important;max-width:none!important;}
 #adminDashboard .admin-main-content,
 #adminDashboard .admin-main-content > *,
 #adminDashboard .admin-main-content .admin-module-drawer,
-#adminDashboard .admin-main-content .admin-module-body{border-left:0!important;border-right:0!important;border-top:0!important;outline:0!important;}
-#adminDashboard .admin-main-content .admin-module-body>.admin-card{border:0!important;box-shadow:0 3px 12px rgba(8,45,104,.06)!important;}
-@media(max-width:767px){
-  #adminDashboard .admin-main-content{margin:16px 6px 24px!important;width:calc(100% - 12px)!important;}
-}
+#adminDashboard .admin-main-content .admin-module-body{border:0!important;outline:0!important;box-shadow:none!important;}
+#adminDashboard .admin-main-content .admin-module-body>.admin-card{border:0!important;}
 </style>
 </head>
 <body class="pm-print-page admin-standalone">
@@ -2821,7 +2818,7 @@
     <div id="adminDashboard" style="display:none">
       <div class="admin-hamburger-bar">
         <div class="admin-hamburger-actions"><button class="admin-hamburger-btn" type="button" aria-label="Open admin menu" onclick="toggleAdminHamburger()">☰</button></div>
-        <div class="admin-hamburger-brand"><img src="/assets/pmprintlogo.png" alt="PM PRINT"><div><b id="adminDynamicHeaderTitle">PM PRINT Administration</b><small id="adminDynamicHeaderSubtitle">Select a section from the hamburger menu</small></div></div>
+        <div class="admin-hamburger-brand"><img src="/assets/pmprintlogo.png" alt="PM PRINT"><div><b id="adminDynamicHeaderTitle">Printing Orders</b><small id="adminDynamicHeaderSubtitle">Manage, inspect and update customer printing orders</small></div></div>
       </div>
       <div class="admin-menu-drawer-overlay" id="adminMenuDrawerOverlay" onclick="closeAdminHamburger()"></div>
       <aside class="admin-menu-drawer" id="adminMenuDrawer" aria-label="Admin navigation">
@@ -2842,11 +2839,6 @@
       <div class="admin-top" style="display:none"><div><h1>Admin Dashboard</h1><small>Choose an admin tool below. Each tool opens in its own panel.</small></div><button class="admin-btn secondary" style="width:auto;margin:0" onclick="adminLogout()">Logout</button></div>
       <div class="admin-dynamic-shell">
         <main class="admin-main-content" id="adminMainContent">
-          <section class="admin-main-welcome" id="adminMainWelcome">
-            <div class="admin-main-welcome-icon">☰</div>
-            <h2>PM PRINT Administration</h2>
-            <p>Select a section from the hamburger menu to manage PM PRINT.</p>
-          </section>
         </main>
       </div>
       <div class="admin-module-menu">
@@ -2990,7 +2982,6 @@ async function loadAdminDashboard(){
         populateAdminPricing(data.pricing||{});
         if(data.pmInkPricing){window.pmInkPricing=data.pmInkPricing;populatePmInkPricing(data.pmInkPricing);}
         renderAdminLocations(data.locations||[]); updateAccountManagement(data.accountManagement); if($('customerAccountSummary'))$('customerAccountSummary').textContent=Number(data.totalCustomers||0)+' customer account(s)';
-        openAdminModule('orders',{load:false});
       }catch(e){
         adminShowToast(e.message||'Could not load admin dashboard.');
       }
@@ -3033,7 +3024,7 @@ async function loadAdminDashboard(){
     };
     function setAdminDynamicHeader(name){
       const title=$('adminDynamicHeaderTitle'),sub=$('adminDynamicHeaderSubtitle');
-      const item=ADMIN_MENU_TITLES[name]||['PM PRINT Administration','Select a section from the hamburger menu'];
+      const item=ADMIN_MENU_TITLES[name]||ADMIN_MENU_TITLES.orders;
       if(title)title.textContent=item[0];
       if(sub)sub.textContent=item[1];
     }
@@ -3052,7 +3043,6 @@ async function loadAdminDashboard(){
       setActiveAdminMenu(name);
       initializeAdminDynamicViews();
       document.querySelectorAll('#adminMainContent .admin-module-drawer').forEach(el=>el.classList.remove('open'));
-      const welcome=$('adminMainWelcome'); if(welcome)welcome.style.display='none';
       const el=$('adminModule_'+name);
       if(!el)return;
       el.classList.add('open');
@@ -3065,8 +3055,7 @@ async function loadAdminDashboard(){
     function closeAdminModule(){
       initializeAdminDynamicViews();
       document.querySelectorAll('#adminMainContent .admin-module-drawer').forEach(el=>el.classList.remove('open'));
-      const welcome=$('adminMainWelcome'); if(welcome)welcome.style.display='block';
-      setAdminDynamicHeader('');
+      setAdminDynamicHeader('orders');
       window.scrollTo({top:0,behavior:'smooth'});
     }
     function adminFilterChanged(select){ const value=select?.value||''; const box=$('adminOrders'); if(box)box.innerHTML='<div style="font-size:11px;color:var(--muted);padding:16px;text-align:center">Loading '+escapeHtml(value||'active orders')+'…</div>'; loadAdminOrders(); }
