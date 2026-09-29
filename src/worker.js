@@ -251,11 +251,12 @@ async function createCustomerNotification(env,customerId,{type='system',category
 
 
 function parsePageSelectionServer(raw,total){const text=clean(raw);if(!text)return {valid:true,count:total,pages:[]};const max=Math.max(0,Math.floor(num(total)));const set=new Set();for(const part of text.split(',')){const m=part.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);if(!m)throw new Error('Invalid page selection.');let a=Number(m[1]),b=m[2]?Number(m[2]):a;if(a<1||b<a||b>max)throw new Error('Page selection is outside the analyzed page range.');for(let i=a;i<=b;i++)set.add(i);}return {valid:set.size>0,count:set.size,pages:[...set].sort((a,b)=>a-b)};}
-async function createOrder(env,data,origin,apiPrefix='/api',request=null){
+async function createOrder(env,data,origin,apiPrefix='/api',request=null,options={}){
   const settings=await getSettings(env); if(settings.printing_available==='false')throw new Error('Printing orders are currently unavailable.');
   const accountsOn=settings.pmprint_account_management==='1'||settings.pmprint_account_management==='true';
   let account=null;if(accountsOn){account=await requireCustomer(env,request||new Request(origin));data.studentName=account.name;data.contact=account.phone||clean(data.contact);if(!data.contact)throw new Error('Your account does not have a contact number. Please ask the administrator to update your account.');data.customerId=account.id;}
 
+  const internal=options.internal===true;
   const incomingR2Key=clean(data.r2Key);
   const uploadedFile=data.uploadedFile instanceof File ? data.uploadedFile : null;
   if(env.PM_PRINT && !uploadedFile && !incomingR2Key) throw new Error('The document file is required.');
@@ -290,7 +291,12 @@ async function createOrder(env,data,origin,apiPrefix='/api',request=null){
   }
   const deviceId=clean(data.deviceId);let discount=0,voucherCode='';let voucherInfo=null;let voucherCodes=[];
   const requestedVoucherCodes=Array.isArray(data.voucherCodes)?data.voucherCodes:(clean(data.voucherCode)?String(data.voucherCode).split(','):[]);
-  if(requestedVoucherCodes.length){const vr=await validateVouchersServer(env,{codes:requestedVoucherCodes,subtotal:calc.baseTotal,pages,copies,deliveryFee,deviceId,customerId:account?.id||null,accountManaged:accountsOn});discount=vr.discount;voucherCodes=vr.codes;voucherCode=vr.codes.join(', ');voucherInfo=vr.vouchers;}
+  if(internal&&data._voucherValidated){
+    discount=Math.max(0,Number(data._voucherDiscount||0));
+    voucherCodes=[...new Set((Array.isArray(data._voucherCodes)?data._voucherCodes:[]).map(x=>clean(x).toUpperCase()).filter(Boolean))];
+    voucherCode=voucherCodes.join(', ');
+    voucherInfo=Array.isArray(data._voucherInfo)?data._voucherInfo:[];
+  }else if(requestedVoucherCodes.length){const vr=await validateVouchersServer(env,{codes:requestedVoucherCodes,subtotal:calc.baseTotal,pages,copies,deliveryFee,deviceId,customerId:account?.id||null,accountManaged:accountsOn});discount=vr.discount;voucherCodes=vr.codes;voucherCode=vr.codes.join(', ');voucherInfo=vr.vouchers;}
   const settingsInk=pmInkSettings(settings);
   const analysis=normalizeInkAnalysis(data.inkAnalysis,pages);
   const selection=parsePageSelectionServer(pageSelection,pages);
@@ -327,6 +333,11 @@ async function createOrder(env,data,origin,apiPrefix='/api',request=null){
         await env.PRINT_FILES.put(permanentKey,bytes,{httpMetadata:{contentType:clean(data.fileType)||uploadedFile.type||'application/octet-stream'},customMetadata:{customerName:student,orderId,fileHash:actualHash}});
         data.fileHash=actualHash;
       }catch(e){ if(String(e?.message||'').includes('changed after analysis'))throw e; throw new Error('Unable to upload your document. Please try again.'); }
+    }else if(incomingR2Key.startsWith('pmprint/cart/')){
+      const cartObject=await env.PRINT_FILES.get(incomingR2Key);
+      if(!cartObject)throw new Error('The cart file is no longer available. Please add the item to cart again.');
+      permanentKey=`pmprint/orders/${created.slice(0,4)}/${orderId}/${String(data.fileName||'document').replace(/[^A-Za-z0-9._-]/g,'_')}`;
+      await env.PRINT_FILES.put(permanentKey,cartObject.body,{httpMetadata:{contentType:clean(data.fileType)||'application/octet-stream'},customMetadata:{customerName:student,orderId,fileHash:clean(data.fileHash)}});
     }else if(!incomingR2Key.startsWith('pmprint/orders/')){
       throw new Error('A valid PMPRINT order file is required.');
     }
@@ -336,8 +347,9 @@ async function createOrder(env,data,origin,apiPrefix='/api',request=null){
   try{
     await env.DB.prepare(`INSERT INTO orders(id,customer_name,contact,location,content_type,print_color,print_side,format,paper_size,copies,binding,file_name,r2_key,fulfillment,delivery_fee,delivery_notes,pages,page_selection,printed_sides,sheets,printing_cost,paper_cost,amount,payment_status,status,status_reason,ready_pickup_location,voucher_code,discount,created_at,updated_at,device_id,ink_analysis_json,pricing_snapshot_json,automatic_ink_cost,admin_ink_override,final_ink_cost,ink_price_source,file_hash,subtotal,centavo_discount,final_total,customer_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(orderId,student,contact,location,content,color,sides,format,paper,copies,binding,clean(data.fileName),permanentKey,fulfillment,deliveryFee,clean(data.notes),pages,pageSelection,calc.printedSides,calc.sheets,calc.printingCost,calc.paperCost,total,'Payment Due','Pending','',fulfillment==='Pickup'?location:'',voucherCode,discount,created,created,deviceId,JSON.stringify(analysisPayload),JSON.stringify(snapshot),totalInk,finalInk,finalInk,'AUTOMATIC',clean(data.fileHash),subtotal,centavoDiscount,total,account?.id||null).run();
   }catch(e){ if(env.PM_PRINT&&permanentKey.startsWith('pmprint/orders/')){try{await env.PRINT_FILES.delete(permanentKey);}catch(_){}} throw e; }
+  if(env.PM_PRINT&&incomingR2Key.startsWith('pmprint/cart/')){try{await env.PRINT_FILES.delete(incomingR2Key)}catch(_){}}
   await createOrderNotification(env,orderId,deviceId,'Pending','',fulfillment==='Pickup'?location:'',account?.id||null);
-  if(voucherCodes.length){const vr=await validateVouchersServer(env,{codes:voucherCodes,subtotal:calc.baseTotal,pages,copies,deliveryFee,deviceId,customerId:account?.id||null,accountManaged:accountsOn});for(const v of vr.vouchers)await env.DB.prepare('INSERT INTO voucher_redemptions(id,voucher_code,device_id,order_id,discount,created_at) VALUES(?,?,?,?,?,?)').bind(id('VR'),v.code,deviceId,orderId,v.discount,created).run();}
+  if(voucherCodes.length&&!internal){const vr=await validateVouchersServer(env,{codes:voucherCodes,subtotal:calc.baseTotal,pages,copies,deliveryFee,deviceId,customerId:account?.id||null,accountManaged:accountsOn});for(const v of vr.vouchers)await env.DB.prepare('INSERT INTO voucher_redemptions(id,voucher_code,device_id,order_id,discount,created_at) VALUES(?,?,?,?,?,?)').bind(id('VR'),v.code,deviceId,orderId,v.discount,created).run();}
   const row=await env.DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first(); return {success:true,order:rowOrder(row,origin,apiPrefix),voucher:voucherInfo};
 }
 async function adminOrders(env,status,origin,limit=100,apiPrefix='/api'){let sql='SELECT * FROM orders';const args=[];if(status){sql+=' WHERE status=?';args.push(status)}else{sql+=` WHERE status IN (${ACTIVE_ORDER_STATUSES.map(()=>'?').join(',')})`;args.push(...ACTIVE_ORDER_STATUSES)}sql+=' ORDER BY created_at DESC LIMIT ?';args.push(Math.min(200,Math.max(1,num(limit,100))));const {results}=await env.DB.prepare(sql).bind(...args).all();return results.map(r=>rowOrder(r,origin,apiPrefix));}
@@ -439,6 +451,24 @@ async function handleAdmin(env,req,action,data,origin,apiPrefix='/api'){const us
 }
 async function listVouchers(env){const {results}=await env.DB.prepare('SELECT * FROM vouchers ORDER BY created_at DESC').all();return results.map(v=>({code:v.code,type:v.type,value:num(v.value),minSpend:num(v.min_spend),maxDiscount:v.max_discount===null?null:num(v.max_discount),maxShippingDiscount:v.max_shipping_discount===null?null:num(v.max_shipping_discount),minPages:num(v.min_pages),minCopies:num(v.min_copies),totalUsageLimit:v.total_usage_limit===null?null:num(v.total_usage_limit),perDeviceLimit:num(v.per_device_limit,1),startAt:v.start_at,endAt:v.end_at,active:!!v.active,label:v.type==='percent'?`${num(v.value)}% OFF`:v.type==='fixed'?`₱${num(v.value).toFixed(2)} OFF`:'FREE DELIVERY'}));}
 
+
+async function cartConfigSummary(env,settings,config){
+  const pages=Math.floor(num(config.pages));
+  const copies=Math.floor(num(config.copies,1));
+  const content=clean(config.contentType),color=clean(config.color),sides=clean(config.sides),format=clean(config.format),paper=clean(config.paperSize),binding=clean(config.binding);
+  if(pages<1||copies<1)throw new Error('Cart item has invalid page or copy data.');
+  if(!['Text Only','Text + Image','Image Only'].includes(content)||!['Black & White','Colored'].includes(color)||!['Single-sided','Double-sided','Back-to-back'].includes(sides)||!['Regular','Booklet','Tarpapel'].includes(format)||!paper)throw new Error('Cart item has invalid printing options.');
+  const pricing=await getPricing(env);requirePmPrintingPricing(pricing);const calc=calculatePrice(pricing,pages,copies,content,color,sides,format);
+  const inkSettings=pmInkSettings(settings);const analysis=normalizeInkAnalysis(config.inkAnalysis,pages);const selection=parsePageSelectionServer(clean(config.pageSelection),pages);const ink=calculatePmInk(inkSettings,analysis,selection.pages.length?selection.pages:analysis.map(p=>p.page_number),color);
+  const inkCost=ink.totalInkCost*copies;const base=calc.baseTotal;return {pages,copies,content,color,sides:format==='Booklet'?'Double-sided':sides,format,paperSize:paper,binding,baseTotal:base,printingCost:calc.printingCost,paperCost:calc.paperCost,inkCost,subtotal:base+inkCost,fileName:clean(config.fileName),fileHash:clean(config.fileHash),fileType:clean(config.fileType),pageSelection:clean(config.pageSelection),inkAnalysis:analysis};
+}
+async function getCartItems(env,customerId){
+  const {results}=await env.DB.prepare('SELECT id,file_name,file_hash,file_type,file_size,config_json,created_at,updated_at FROM pm_cart_items WHERE customer_id=? ORDER BY created_at DESC').bind(customerId).all();
+  const settings=await getSettings(env);const items=[];
+  for(const row of results||[]){const config=safeJson(row.config_json,{});try{const summary=await cartConfigSummary(env,settings,config);items.push({id:row.id,fileName:row.file_name||summary.fileName,fileHash:row.file_hash||summary.fileHash,fileType:row.file_type||summary.fileType,fileSize:num(row.file_size),createdAt:row.created_at,updatedAt:row.updated_at,config,summary});}catch(e){items.push({id:row.id,fileName:row.file_name||'Cart item',fileHash:row.file_hash||'',fileType:row.file_type||'',fileSize:num(row.file_size),createdAt:row.created_at,updatedAt:row.updated_at,config,summary:null,error:e.message||'Invalid cart item'});}}
+  return items;
+}
+
 async function handle(request, env){
   const incomingUrl = new URL(request.url);
   const isPmPrint = incomingUrl.pathname === '/' || incomingUrl.pathname === '/pmprint' || incomingUrl.pathname === '/pmadmin' || incomingUrl.pathname === '/admin.html' || incomingUrl.pathname === '/pmprint.html' || incomingUrl.pathname === '/api/pmprint' || incomingUrl.pathname.startsWith('/api/pmprint/');
@@ -476,9 +506,10 @@ async function handle(request, env){
     let data={};
     if(request.method!=='GET'){
       const ct=request.headers.get('content-type')||'';
-      if(action==='createOrder'&&ct.toLowerCase().includes('multipart/form-data')){
-        const form=await request.formData();const raw=form.get('orderData');if(typeof raw!=='string')throw new Error('Order data is missing.');
-        try{data=JSON.parse(raw);}catch(_){throw new Error('Invalid order data.');}
+      if((action==='createOrder'||action==='addCartItem')&&ct.toLowerCase().includes('multipart/form-data')){
+        const form=await request.formData();const raw=form.get(action==='addCartItem'?'config_json':'orderData');if(typeof raw!=='string')throw new Error(action==='addCartItem'?'Cart configuration is missing.':'Order data is missing.');
+        try{data=JSON.parse(raw);}catch(_){if(action==='addCartItem')data={config_json:raw};else throw new Error('Invalid order data.');}
+        if(action==='addCartItem'){data.config_json=raw;}
         const file=form.get('file');if(!(file instanceof File))throw new Error('Please select a file first.');data.uploadedFile=file;
       }else{try{data=await request.json();}catch(_){data={};}}
     }else url.searchParams.forEach((v,k)=>data[k]=v);
@@ -488,6 +519,42 @@ async function handle(request, env){
     if(action==='customerLogout'){const token=getCookie(request,'pmprint_customer');if(token){const h=await sha256(token);const c=await env.DB.prepare('SELECT c.* FROM pm_customer_sessions s INNER JOIN pm_customers c ON c.id=s.customer_id WHERE s.token_hash=?').bind(h).first();if(c)await accountActivity(env,c,'LOGOUT','Customer signed out.',request);await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE token_hash=?').bind(h).run();}return json({success:true},200,{'set-cookie':cookie('pmprint_customer','',{maxAge:0})});}
     if(action==='getCustomerProfile'){return json({success:true,customer:publicCustomer(await requireCustomer(env,request))});}
     if(action==='changeCustomerPassword'){const c=await requireCustomer(env,request);const old=String(data.currentPassword||''),nw=String(data.newPassword||'');if(nw.length<8)throw new Error('New password must be at least 8 characters.');if(await accountPasswordHash(old,c.password_salt)!==c.password_hash)throw new Error('Current password is incorrect.');const salt=crypto.randomUUID()+crypto.randomUUID(),hash=await accountPasswordHash(nw,salt);await env.DB.prepare('UPDATE pm_customers SET password_hash=?,password_salt=?,updated_at=? WHERE id=?').bind(hash,salt,now(),c.id).run();await accountActivity(env,c,'PASSWORD_CHANGED','Customer password changed.',request);return json({success:true});}
+    if(action==='addCartItem'){
+      if(!await accountManagementOn(env))throw new Error('Cart is available only when Account Management is turned on.');
+      const c=await requireCustomer(env,request);const file=data.uploadedFile;if(!(file instanceof File))throw new Error('Please select a file first.');
+      if(file.size>MAX_UPLOAD_BYTES)throw new Error('File is larger than 20 MB. Please choose a file up to 20 MB.');
+      const config=safeJson(clean(data.config_json),{});if(!config||!Array.isArray(config.inkAnalysis))throw new Error('Printing analysis is missing. Please analyze the file again.');
+      const settings=await getSettings(env);const summary=await cartConfigSummary(env,settings,config);const hash=await sha256Bytes(await file.arrayBuffer());if(clean(config.fileHash)&&hash!==clean(config.fileHash))throw new Error('The selected file changed after analysis. Please select it again.');
+      const itemId=id('CART');const safe=String(file.name||config.fileName||'document').replace(/[^A-Za-z0-9._-]/g,'_');const key=`pmprint/cart/${c.id}/${itemId}/${safe}`;
+      const bytes=await file.arrayBuffer();await env.PRINT_FILES.put(key,bytes,{httpMetadata:{contentType:clean(file.type)||clean(config.fileType)||'application/octet-stream'},customMetadata:{customerId:c.id,fileHash:hash}});
+      try{await env.DB.prepare('INSERT INTO pm_cart_items(id,customer_id,file_name,r2_key,file_hash,file_type,file_size,config_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(itemId,c.id,safe,key,hash,clean(file.type)||clean(config.fileType),file.size,JSON.stringify({...config,fileHash:hash,fileName:safe,fileType:clean(file.type)||clean(config.fileType)}),now(),now()).run();}catch(e){try{await env.PRINT_FILES.delete(key)}catch(_){}throw e;}
+      return json({success:true,item:{id:itemId,fileName:safe,fileSize:file.size,summary}});
+    }
+    if(action==='getCart'){
+      const c=await requireCustomer(env);const items=await getCartItems(env,c.id);return json({success:true,items});
+    }
+    if(action==='deleteCartItem'){
+      const c=await requireCustomer(env);const itemId=clean(data.itemId);const row=await env.DB.prepare('SELECT id,r2_key FROM pm_cart_items WHERE id=? AND customer_id=?').bind(itemId,c.id).first();if(!row)throw new Error('Cart item not found.');await env.DB.prepare('DELETE FROM pm_cart_items WHERE id=? AND customer_id=?').bind(itemId,c.id).run();if(row.r2_key){try{await env.PRINT_FILES.delete(row.r2_key)}catch(_){}}return json({success:true,deleted:itemId});
+    }
+    if(action==='checkoutCart'){
+      if(!(await accountManagementOn(env)))throw new Error('Cart checkout is available only when Account Management is turned on.');
+      const c=await requireCustomer(env);const ids=[...new Set((Array.isArray(data.itemIds)?data.itemIds:[]).map(x=>clean(x)).filter(Boolean))];if(!ids.length)throw new Error('Select at least one cart item.');
+      const all=await getCartItems(env,c.id);const selected=all.filter(x=>ids.includes(x.id));if(selected.length!==ids.length)throw new Error('One or more selected cart items are no longer available.');if(selected.some(x=>!x.summary))throw new Error('One or more cart items need to be added again.');
+      const fulfillment=clean(data.fulfillment||'Pickup');if(!['Pickup','Delivery'].includes(fulfillment))throw new Error('Invalid order method.');let locationId=clean(data.locationId),location='';let deliveryFee=0;
+      if(fulfillment==='Delivery'){const loc=locationId?await env.DB.prepare('SELECT * FROM locations WHERE id=? AND active=1').bind(locationId).first():null;if(!loc)throw new Error('Selected delivery location is no longer available.');location=loc.name;deliveryFee=num(loc.fee);}
+      else{location=clean((await getSettings(env)).pickup_location)||'Yao St., Purok 5, Naganacan, Cauayan City, Isabela';}
+      const aggregateSubtotal=selected.reduce((a,x)=>a+Number(x.summary.subtotal||0),0);const aggregatePages=selected.reduce((a,x)=>a+Number(x.summary.pages||0),0);const aggregateCopies=selected.reduce((a,x)=>a+Number(x.summary.copies||0),0);const deviceId=clean(data.deviceId);
+      const codes=[...new Set((Array.isArray(data.voucherCodes)?data.voucherCodes:String(data.voucherCode||'').split(',')).map(x=>clean(x).toUpperCase()).filter(Boolean))];
+      const vr=await validateVouchersServer(env,{codes,subtotal:aggregateSubtotal,pages:aggregatePages,copies:aggregateCopies,deliveryFee,deviceId,customerId:c.id,accountManaged:true});
+      const checkoutId=id('CHK');const createdOrders=[];let remainingPrint=Number(vr.printDiscount||0),remainingShipping=Number(vr.shippingDiscount||0);const info=vr.vouchers||[];
+      for(let i=0;i<selected.length;i++){
+        const item=selected[i],s=item.summary,itemDelivery=(i===0?deliveryFee:0);const ratio=aggregateSubtotal>0?Number(s.subtotal||0)/aggregateSubtotal:0;let itemPrint=i===selected.length-1?remainingPrint:Number((vr.printDiscount*ratio).toFixed(2));itemPrint=Math.min(itemPrint,Number(s.subtotal||0));remainingPrint=Math.max(0,Number((remainingPrint-itemPrint).toFixed(2)));let itemShipping=i===0?Math.min(remainingShipping,itemDelivery):0;remainingShipping=Math.max(0,Number((remainingShipping-itemShipping).toFixed(2)));const itemDiscount=Math.min(Number(s.subtotal||0)+itemDelivery,Number((itemPrint+itemShipping).toFixed(2)));
+        const cfg=item.config;const orderData={...cfg,studentName:c.name,contact:c.phone,fileName:item.fileName,fileHash:item.fileHash,fileType:item.fileType,r2Key:cfg.r2Key||'',fulfillment,location,locationId,notes:clean(data.notes),deviceId,customerId:c.id,voucherCodes:[],voucherCode:'',discount:0,_voucherValidated:true,_voucherDiscount:itemDiscount,_voucherCodes:vr.codes,_voucherInfo:info,checkoutId};orderData.r2Key=(await env.DB.prepare('SELECT r2_key FROM pm_cart_items WHERE id=? AND customer_id=?').bind(item.id,c.id).first())?.r2_key||'';if(!orderData.r2Key)throw new Error('Cart file is missing.');
+        try{const out=await createOrder(env,orderData,origin,apiPrefix,request,{internal:true});createdOrders.push(out.order);await env.DB.prepare('UPDATE orders SET checkout_id=? WHERE id=?').bind(checkoutId,out.order.OrderID).run();}catch(e){throw new Error('Checkout failed while creating '+item.fileName+': '+(e.message||'Unknown error'));}
+      }
+      if(vr.codes.length&&createdOrders.length){const first=createdOrders[0].OrderID;for(const v of vr.vouchers){await env.DB.prepare('INSERT INTO voucher_redemptions(id,voucher_code,device_id,order_id,discount,created_at) VALUES(?,?,?,?,?,?)').bind(id('VR'),v.code,deviceId,first,v.discount,now()).run();}}
+      return json({success:true,checkoutId,orders:createdOrders,subtotal:aggregateSubtotal,deliveryFee,discount:vr.discount,printDiscount:vr.printDiscount,shippingDiscount:vr.shippingDiscount,total:Math.max(0,aggregateSubtotal+deliveryFee-vr.discount),codes:vr.codes});
+    }
     if(action==='getCustomerOrders'){const c=await requireCustomer(env,request);const {results}=await env.DB.prepare('SELECT id,file_name,status,status_reason,payment_status,fulfillment,delivery_fee,discount,subtotal,centavo_discount,final_total,amount,created_at,updated_at FROM orders WHERE customer_id=? ORDER BY created_at DESC LIMIT 100').bind(c.id).all();return json({success:true,orders:results.map(o=>({id:o.id,fileName:o.file_name||'',status:o.status||'Pending',statusReason:o.status_reason||'',paymentStatus:o.payment_status||'Payment Due',fulfillment:o.fulfillment||'',deliveryFee:num(o.delivery_fee),discount:num(o.discount),subtotal:num(o.subtotal),centavoDiscount:num(o.centavo_discount),finalTotal:num(o.final_total,o.amount),amount:num(o.amount),createdAt:o.created_at||'',updatedAt:o.updated_at||''}))});}
     // Customer My Orders API: these are dedicated server actions and always verify ownership server-side.
     if(action==='customerCheckOrderStatus'||action==='getCustomerOrderStatus'||action==='checkCustomerOrderStatus'){
