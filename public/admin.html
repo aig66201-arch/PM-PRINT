@@ -2426,7 +2426,7 @@
 .admin-menu-close{width:36px;height:36px;border:2px solid #64a4ff;background:#104a9d;color:#fff;border-radius:3px;font-size:22px;cursor:pointer}
 .admin-menu-list{padding:12px;overflow:auto;flex:1}
 .admin-menu-item{width:100%;border:2px solid transparent;background:#fff;color:#10233f;padding:12px;border-radius:4px;display:flex;align-items:center;gap:11px;text-align:left;cursor:pointer;margin-bottom:7px;box-shadow:2px 2px 0 rgba(8,45,104,.06)}
-.admin-menu-item:hover,.admin-menu-item:focus-visible{background:#eaf3ff;border-color:#79abe8;color:#0b3f91;outline:none}
+.admin-menu-item:hover,.admin-menu-item:focus-visible,.admin-menu-item.active{background:#eaf3ff;border-color:#79abe8;color:#0b3f91;outline:none}
 .admin-menu-item .icon{width:34px;height:34px;display:grid;place-items:center;border:1px solid #c7d8ee;background:#edf5ff;border-radius:3px;font-size:18px;flex:0 0 auto}
 .admin-menu-item b{display:block;font-size:11px}.admin-menu-item small{display:block;color:#58708f;font-size:8px;margin-top:3px;line-height:1.35}
 .admin-menu-footer{padding:12px;border-top:1px solid #c7d8ee;display:grid;gap:7px}
@@ -2782,14 +2782,16 @@
 </style>
 
 <style id="admin-spacing-cleanup">
-#adminDashboard{margin:-18px -8px 0!important;}
-#adminDashboard .admin-hamburger-bar{margin:0 0 18px!important;border:0!important;}
-#adminDashboard .admin-main-content{margin:0!important;padding-left:6px!important;padding-right:6px!important;border:0!important;outline:0!important;box-shadow:none!important;}
+#adminDashboard{margin:0!important;padding:0!important;}
+#adminDashboard .admin-hamburger-bar{margin:0!important;border:0!important;outline:0!important;box-shadow:none!important;top:0!important;border-radius:0!important;}
+#adminDashboard .admin-main-content{margin:18px 6px 30px!important;padding:0!important;border:0!important;outline:0!important;box-shadow:none!important;width:calc(100% - 12px)!important;}
+#adminDashboard .admin-main-content,
+#adminDashboard .admin-main-content > *,
+#adminDashboard .admin-main-content .admin-module-drawer,
+#adminDashboard .admin-main-content .admin-module-body{border-left:0!important;border-right:0!important;border-top:0!important;outline:0!important;}
 #adminDashboard .admin-main-content .admin-module-body>.admin-card{border:0!important;box-shadow:0 3px 12px rgba(8,45,104,.06)!important;}
 @media(max-width:767px){
-  #adminDashboard{margin:-18px -6px 0!important;}
-  #adminDashboard .admin-hamburger-bar{margin:0 0 14px!important;}
-  #adminDashboard .admin-main-content{padding-left:6px!important;padding-right:6px!important;}
+  #adminDashboard .admin-main-content{margin:16px 6px 24px!important;width:calc(100% - 12px)!important;}
 }
 </style>
 </head>
@@ -2988,6 +2990,7 @@ async function loadAdminDashboard(){
         populateAdminPricing(data.pricing||{});
         if(data.pmInkPricing){window.pmInkPricing=data.pmInkPricing;populatePmInkPricing(data.pmInkPricing);}
         renderAdminLocations(data.locations||[]); updateAccountManagement(data.accountManagement); if($('customerAccountSummary'))$('customerAccountSummary').textContent=Number(data.totalCustomers||0)+' customer account(s)';
+        openAdminModule('orders',{load:false});
       }catch(e){
         adminShowToast(e.message||'Could not load admin dashboard.');
       }
@@ -3003,6 +3006,14 @@ async function loadAdminDashboard(){
       const d=$('adminMenuDrawer'),o=$('adminMenuDrawerOverlay');
       if(d)d.classList.remove('open');if(o)o.classList.remove('open');
       document.body.style.overflow='';
+    }
+    function setActiveAdminMenu(name){
+      document.querySelectorAll('#adminMenuDrawer .admin-menu-item').forEach(btn=>{
+        const match=btn.getAttribute('onclick')||'';
+        const active=match.includes("openAdminMenuModule('"+name+"')");
+        btn.classList.toggle('active',active);
+        btn.setAttribute('aria-current',active?'page':'false');
+      });
     }
     function openAdminMenuModule(name){
       closeAdminHamburger();
@@ -3034,8 +3045,11 @@ async function loadAdminDashboard(){
       const overlay=$('adminModuleOverlay'); if(overlay)overlay.remove();
       document.querySelectorAll('#adminMainContent .admin-module-head button').forEach(btn=>btn.remove());
       setAdminDynamicHeader('');
+      setActiveAdminMenu('orders');
     }
-    function openAdminModule(name){
+    function openAdminModule(name,options){
+      options=options||{};
+      setActiveAdminMenu(name);
       initializeAdminDynamicViews();
       document.querySelectorAll('#adminMainContent .admin-module-drawer').forEach(el=>el.classList.remove('open'));
       const welcome=$('adminMainWelcome'); if(welcome)welcome.style.display='none';
@@ -3045,8 +3059,8 @@ async function loadAdminDashboard(){
       setAdminDynamicHeader(name);
       closeAdminHamburger();
       window.scrollTo({top:0,behavior:'smooth'});
-      if(name==='orders')loadAdminOrders();
-      if(name==='notifications')loadAdminNotificationCustomers();
+      if(name==='orders' && options.load!==false)loadAdminOrders();
+      if(name==='notifications' && options.load!==false)loadAdminNotificationCustomers();
     }
     function closeAdminModule(){
       initializeAdminDynamicViews();
