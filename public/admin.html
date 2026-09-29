@@ -3321,7 +3321,7 @@ async function loadAdminDashboard(){
           '<label class="admin-field full"><span>BINDING</span><select id="printBinding"><option value="left" '+(String(order.Binding||'').toLowerCase().includes('right')?'':'selected')+'>Left</option><option value="right" '+(String(order.Binding||'').toLowerCase().includes('right')?'selected':'')+'>Right</option></select></label>'+ 
         '</div>'+ 
         '<div class="print-assistant-preview" id="printAssistantPreview"></div>'+ 
-        '<div id="manualDuplexButtons" style="display:none;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#f8fbf9"><strong style="display:block;margin-bottom:6px">MANUAL BACK-TO-BACK</strong><div style="font-size:9px;color:var(--muted);line-height:1.45;margin-bottom:8px">Print the front side first. Manually flip/reinsert the printed stack, then print the back side.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="admin-btn" onclick="prepareManualDuplexSide(this,\'front\')">🖨 Print Front</button><button class="admin-btn" onclick="prepareManualDuplexSide(this,\'back\')">🖨 Print Back</button></div></div>'+ 
+        '<div id="manualDuplexButtons" style="display:none;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#f8fbf9"><strong id="manualDuplexTitle" style="display:block;margin-bottom:6px">MANUAL BACK-TO-BACK</strong><div id="manualDuplexHelp" style="font-size:9px;color:var(--muted);line-height:1.45;margin-bottom:8px">Print the front side first. Manually flip/reinsert the printed stack, then print the back side.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="admin-btn" onclick="prepareManualDuplexSide(this,\'front\')">🖨 Print Front</button><button class="admin-btn" onclick="prepareManualDuplexSide(this,\'back\')">🖨 Print Back</button></div></div>'+ 
         '<div class="print-assistant-note">PM PRINT prepares a temporary print-ready PDF from the selected pages and never changes the original customer file. For Manual Back-to-back, print the Front PDF first, manually flip/reinsert the stack, then print the Back PDF. The back side is prepared in reverse page order for manual duplex feeding. Color/Black & White is recorded for the print job; Chrome/Windows may still require the final printer color setting in Print Preview.</div>'+ 
         (deliveryNotes?'<div class="admin-print-box"><strong>DELIVERY NOTES</strong><div style="font-size:10px;line-height:1.5;margin-top:5px">'+escapeHtml(deliveryNotes)+'</div></div>':'');
       $('printModal').classList.add('show');
@@ -3376,6 +3376,9 @@ async function loadAdminDashboard(){
       if(bookletButtons.length){
         bookletButtons[0].textContent=layout==='booklet-duplex'?'🖨 Print Booklet Front':'🖨 Print Front';
         bookletButtons[1].textContent=layout==='booklet-duplex'?'🖨 Print Booklet Back':'🖨 Print Back';
+        const title=$('manualDuplexTitle'),help=$('manualDuplexHelp');
+        if(title)title.textContent=layout==='booklet-duplex'?'BOOKLET BACK-TO-BACK':'REGULAR BACK-TO-BACK';
+        if(help)help.textContent=layout==='booklet-duplex'?'Print Booklet Front first. Manually flip/reinsert the sheets, then print Booklet Back.':'Print Front first. Manually flip/reinsert the printed sheets, then print Back.';
       }
       if(!selected.length){preview.innerHTML='<strong>No valid pages selected</strong>Enter a page range between 1 and '+total+'.';return;}
       if(layout==='booklet-duplex'){
@@ -3420,7 +3423,7 @@ async function loadAdminDashboard(){
         const paper=$('printPaper')?.value||'A4';
         const orientation=$('printOrientation')?.value||'portrait';
         const lib=await loadPdfLib();
-        const response=await fetch(o.FileLink,{credentials:'omit'});
+        const response=await fetch(o.FileLink,{credentials:'include',cache:'no-store'});
         if(!response.ok)throw new Error('Could not download the customer PDF for preparation (HTTP '+response.status+').');
         const source=await response.arrayBuffer();
         const src=await lib.PDFDocument.load(source,{ignoreEncryption:false});
