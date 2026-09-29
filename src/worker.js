@@ -121,6 +121,9 @@ async function ensurePmSchema(env){
     ['centavo_discount','REAL NOT NULL DEFAULT 0'],
     ['final_total','REAL NOT NULL DEFAULT 0']
   ];
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, order_id TEXT, type TEXT NOT NULL DEFAULT 'printing', title TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL, read_at TEXT, device_id TEXT DEFAULT '', customer_id TEXT, category TEXT NOT NULL DEFAULT 'printing')").run();
+  for(const [name,type] of [['customer_id','TEXT'],['category',"TEXT NOT NULL DEFAULT 'printing'"]]) await ensureColumn('notifications',name,type);
+
   for(const [name,type] of orderColumns) await ensureColumn('orders',name,type);
 
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_customers (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', profile_picture_key TEXT DEFAULT '', bio TEXT DEFAULT '', gender TEXT DEFAULT '', birthday TEXT DEFAULT '', phone TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'Active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)").run();
@@ -209,23 +212,42 @@ async function validateVouchersServer(env,{codes,subtotal,pages,copies,deliveryF
 }
 
 
-function notificationForStatus(status, reason='', pickup=''){
+function notificationForStatus(status, reason='', pickup='', orderId=''){
   const s=clean(status);
-  if(s==='Accepted') return {type:'accepted',title:'Order accepted',message:'Your printing order has been accepted.'};
-  if(s==='Declined') return {type:'declined',title:'Order declined',message:reason?`Your printing order was declined: ${reason}`:'Your printing order was declined.'};
-  if(s==='Printing') return {type:'printing',title:'Order is printing',message:'Your printing order is now being printed.'};
-  if(s==='Completed') return {type:'completed',title:'Printing completed',message:'Your printing order has been completed.'};
-  if(s==='In Transit') return {type:'transit',title:'Order in transit',message:'Your printing order is on the way.'};
-  if(s==='Ready to Pickup') return {type:'pickup',title:'Ready for pickup',message:pickup?`Your order is ready for pickup at ${pickup}.`:'Your order is ready for pickup.'};
-  if(s==='Delivered') return {type:'delivered',title:'Order delivered',message:'Your printing order has been delivered.'};
-  return {type:'order',title:'Order received',message:'Your printing order has been received.'};
+  const ref=orderId?`Order ${orderId}`:'Your printing order';
+  if(s==='Accepted') return {type:'accepted',title:'Order accepted',message:`${ref} has been accepted.`};
+  if(s==='Declined') return {type:'declined',title:'Order declined',message:reason?`${ref} was declined: ${reason}`:`${ref} was declined.`};
+  if(s==='Printing') return {type:'printing',title:'Order is printing',message:`${ref} is now being printed.`};
+  if(s==='Completed') return {type:'completed',title:'Printing completed',message:`${ref} has been completed.`};
+  if(s==='In Transit') return {type:'transit',title:'Order in transit',message:`${ref} is on the way.`};
+  if(s==='Ready to Pickup') return {type:'pickup',title:'Ready for pickup',message:pickup?`${ref} is ready for pickup at ${pickup}.`:`${ref} is ready for pickup.`};
+  if(s==='Delivered') return {type:'delivered',title:'Order delivered',message:`${ref} has been delivered.`};
+  return {type:'order',title:'Order received',message:`${ref} has been received.`};
 }
-async function createOrderNotification(env,orderId,deviceId,status,reason='',pickup=''){
-  if(!clean(deviceId)||!clean(orderId)) return;
-  const n=notificationForStatus(status,reason,pickup);
-  await env.DB.prepare('INSERT INTO notifications(id,order_id,type,title,message,created_at,read_at) VALUES(?,?,?,?,?,?,NULL)').bind(id('NOT'),orderId,n.type,n.title,n.message,now()).run();
+async function createOrderNotification(env,orderId,deviceId,status,reason='',pickup='',customerId=null){
+  if(!clean(orderId)) return;
+  const n=notificationForStatus(status,reason,pickup,orderId),t=now();
+  if(clean(customerId)){
+    const existing=await env.DB.prepare("SELECT id FROM notifications WHERE order_id=? AND customer_id=? ORDER BY created_at DESC LIMIT 1").bind(orderId,customerId).first();
+    if(existing){
+      await env.DB.prepare('UPDATE notifications SET type=?,category=?,title=?,message=?,created_at=?,read_at=NULL,device_id=? WHERE id=?').bind(n.type,'printing',n.title,n.message,t,clean(deviceId),existing.id).run();
+    }else{
+      await env.DB.prepare('INSERT INTO notifications(id,order_id,type,title,message,created_at,read_at,device_id,customer_id,category) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id('NOT'),orderId,n.type,n.title,n.message,t,null,clean(deviceId),customerId,'printing').run();
+    }
+    return;
+  }
+  if(!clean(deviceId)) return;
+  const existing=await env.DB.prepare('SELECT id FROM notifications WHERE order_id=? AND device_id=? ORDER BY created_at DESC LIMIT 1').bind(orderId,deviceId).first();
+  if(existing){
+    await env.DB.prepare('UPDATE notifications SET type=?,title=?,message=?,created_at=?,read_at=NULL WHERE id=?').bind(n.type,n.title,n.message,t,existing.id).run();
+  }else{
+    await env.DB.prepare('INSERT INTO notifications(id,order_id,type,title,message,created_at,read_at,device_id,category) VALUES(?,?,?,?,?,?,?,?,?)').bind(id('NOT'),orderId,n.type,n.title,n.message,t,null,clean(deviceId),'printing').run();
+  }
 }
-
+async function createCustomerNotification(env,customerId,{type='system',category='system',title,message,orderId=null}){
+  if(!clean(customerId)||!clean(title)||!clean(message)) return;
+  await env.DB.prepare('INSERT INTO notifications(id,order_id,type,title,message,created_at,read_at,device_id,customer_id,category) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id('NOT'),clean(orderId)||'',clean(type),clean(title),clean(message),now(),null,'',clean(customerId),clean(category)||'system').run();
+}
 
 
 function parsePageSelectionServer(raw,total){const text=clean(raw);if(!text)return {valid:true,count:total,pages:[]};const max=Math.max(0,Math.floor(num(total)));const set=new Set();for(const part of text.split(',')){const m=part.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);if(!m)throw new Error('Invalid page selection.');let a=Number(m[1]),b=m[2]?Number(m[2]):a;if(a<1||b<a||b>max)throw new Error('Page selection is outside the analyzed page range.');for(let i=a;i<=b;i++)set.add(i);}return {valid:set.size>0,count:set.size,pages:[...set].sort((a,b)=>a-b)};}
@@ -314,7 +336,7 @@ async function createOrder(env,data,origin,apiPrefix='/api',request=null){
   try{
     await env.DB.prepare(`INSERT INTO orders(id,customer_name,contact,location,content_type,print_color,print_side,format,paper_size,copies,binding,file_name,r2_key,fulfillment,delivery_fee,delivery_notes,pages,page_selection,printed_sides,sheets,printing_cost,paper_cost,amount,payment_status,status,status_reason,ready_pickup_location,voucher_code,discount,created_at,updated_at,device_id,ink_analysis_json,pricing_snapshot_json,automatic_ink_cost,admin_ink_override,final_ink_cost,ink_price_source,file_hash,subtotal,centavo_discount,final_total,customer_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(orderId,student,contact,location,content,color,sides,format,paper,copies,binding,clean(data.fileName),permanentKey,fulfillment,deliveryFee,clean(data.notes),pages,pageSelection,calc.printedSides,calc.sheets,calc.printingCost,calc.paperCost,total,'Payment Due','Pending','',fulfillment==='Pickup'?location:'',voucherCode,discount,created,created,deviceId,JSON.stringify(analysisPayload),JSON.stringify(snapshot),totalInk,finalInk,finalInk,'AUTOMATIC',clean(data.fileHash),subtotal,centavoDiscount,total,account?.id||null).run();
   }catch(e){ if(env.PM_PRINT&&permanentKey.startsWith('pmprint/orders/')){try{await env.PRINT_FILES.delete(permanentKey);}catch(_){}} throw e; }
-  await createOrderNotification(env,orderId,deviceId,'Pending');
+  await createOrderNotification(env,orderId,deviceId,'Pending','',fulfillment==='Pickup'?location:'',account?.id||null);
   if(voucherCodes.length){const vr=await validateVouchersServer(env,{codes:voucherCodes,subtotal:calc.baseTotal,pages,copies,deliveryFee,deviceId,customerId:account?.id||null,accountManaged:accountsOn});for(const v of vr.vouchers)await env.DB.prepare('INSERT INTO voucher_redemptions(id,voucher_code,device_id,order_id,discount,created_at) VALUES(?,?,?,?,?,?)').bind(id('VR'),v.code,deviceId,orderId,v.discount,created).run();}
   const row=await env.DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first(); return {success:true,order:rowOrder(row,origin,apiPrefix),voucher:voucherInfo};
 }
@@ -324,13 +346,13 @@ async function updateOrder(env,ids,status,reason,user){
   if(status==='Declined'&&!clean(reason))throw new Error('A reason is required when declining an order.');
   let updated=0;
   for(const oid of ids){
-    const before=await env.DB.prepare('SELECT id,device_id,status FROM orders WHERE id=?').bind(oid).first();
+    const before=await env.DB.prepare('SELECT id,device_id,status,customer_id FROM orders WHERE id=?').bind(oid).first();
     if(!before)continue;
     const pickup=status==='Ready to Pickup'?(await getSettings(env)).pickup_location:'';
     const r=await env.DB.prepare('UPDATE orders SET status=?,status_reason=?,ready_pickup_location=?,updated_at=? WHERE id=?').bind(status,clean(reason),pickup,now(),oid).run();
     updated+=r.meta.changes||0;
     if((r.meta.changes||0)>0 && clean(before.device_id) && clean(before.status)!==status){
-      await createOrderNotification(env,oid,before.device_id,status,reason,pickup);
+      await createOrderNotification(env,oid,before.device_id,status,reason,pickup,before.customer_id||null);
     }
   }
   await log(env,user.username,'BULK_STATUS_UPDATE',`${updated} order(s) → ${status}`);
@@ -343,9 +365,24 @@ async function handleAdmin(env,req,action,data,origin,apiPrefix='/api'){const us
   if(action==='getCustomerAccounts')return {success:true,accounts:await adminCustomers(env,clean(data.search),clean(data.status))};
   if(action==='createCustomerAccount'){const name=clean(data.name),username=clean(data.username).toLowerCase(),password=String(data.password||'');if(!name)throw new Error('Full Name is required.');if(!/^[A-Za-z0-9._%+@-]{3,80}$/.test(username)||username.startsWith('@')||username.endsWith('@')||username.includes('@@'))throw new Error('Username must be 3–80 characters and may use letters, numbers, dot, underscore, hyphen, plus, percent or @.');if(password.length<8)throw new Error('Password must be at least 8 characters.');const exists=await env.DB.prepare('SELECT id FROM pm_customers WHERE username=?').bind(username).first();if(exists)throw new Error('That username is already in use.');const salt=crypto.randomUUID()+crypto.randomUUID(),hash=await accountPasswordHash(password,salt),cid=id('CUS');await env.DB.prepare('INSERT INTO pm_customers(id,username,password_hash,password_salt,name,bio,gender,birthday,phone,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').bind(cid,username,hash,salt,name,clean(data.bio),clean(data.gender),clean(data.birthday),clean(data.phone),data.status==='Inactive'?'Inactive':'Active',now(),now()).run();await accountActivity(env,{id:cid,username},'ACCOUNT_CREATED',`Account created by administrator for ${name}.`,req);await log(env,user.username,'CUSTOMER_ACCOUNT_CREATED',`Created customer account ${username}.`);return {success:true,account:(await adminCustomers(env,username,''))[0]};}
   if(action==='updateCustomerAccount'){const cid=clean(data.id),name=clean(data.name),username=clean(data.username).toLowerCase();if(!cid||!name||!username)throw new Error('Account ID, Full Name and Username are required.');const old=await env.DB.prepare('SELECT * FROM pm_customers WHERE id=?').bind(cid).first();if(!old)throw new Error('Customer account not found.');const dupe=await env.DB.prepare('SELECT id FROM pm_customers WHERE username=? AND id<>?').bind(username,cid).first();if(dupe)throw new Error('That username is already in use.');await env.DB.prepare('UPDATE pm_customers SET username=?,name=?,phone=?,gender=?,birthday=?,bio=?,status=?,updated_at=? WHERE id=?').bind(username,name,clean(data.phone),clean(data.gender),clean(data.birthday),clean(data.bio),data.status==='Inactive'?'Inactive':'Active',now(),cid).run();if(data.status==='Inactive')await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE customer_id=?').bind(cid).run();await accountActivity(env,{id:cid,username},'ACCOUNT_UPDATED','Account details updated by administrator.',req);await log(env,user.username,'CUSTOMER_ACCOUNT_UPDATED',`Updated customer account ${username}.`);return {success:true};}
-  if(action==='deleteCustomerAccount'){const cid=clean(data.id),c=await env.DB.prepare('SELECT * FROM pm_customers WHERE id=?').bind(cid).first();if(!c)throw new Error('Customer account not found.');await env.DB.prepare('DELETE FROM pm_customer_vouchers WHERE customer_id=?').bind(cid).run();await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE customer_id=?').bind(cid).run();await env.DB.prepare('UPDATE orders SET customer_id=NULL WHERE customer_id=?').bind(cid).run();await accountActivity(env,c,'ACCOUNT_DELETED','Account deleted by administrator.',req);await env.DB.prepare('DELETE FROM pm_customers WHERE id=?').bind(cid).run();await log(env,user.username,'CUSTOMER_ACCOUNT_DELETED',`Deleted customer account ${c.username}.`);return {success:true};}
+  if(action==='deleteCustomerAccount'){const cid=clean(data.id),c=await env.DB.prepare('SELECT * FROM pm_customers WHERE id=?').bind(cid).first();if(!c)throw new Error('Customer account not found.');await env.DB.prepare('DELETE FROM pm_customer_vouchers WHERE customer_id=?').bind(cid).run();await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE customer_id=?').bind(cid).run();await env.DB.prepare('DELETE FROM notifications WHERE customer_id=?').bind(cid).run();await env.DB.prepare('UPDATE orders SET customer_id=NULL WHERE customer_id=?').bind(cid).run();await accountActivity(env,c,'ACCOUNT_DELETED','Account deleted by administrator.',req);await env.DB.prepare('DELETE FROM pm_customers WHERE id=?').bind(cid).run();await log(env,user.username,'CUSTOMER_ACCOUNT_DELETED',`Deleted customer account ${c.username}.`);return {success:true};}
   if(action==='resetCustomerPassword'){const cid=clean(data.id),password=String(data.password||'');if(password.length<8)throw new Error('Password must be at least 8 characters.');const c=await env.DB.prepare('SELECT * FROM pm_customers WHERE id=?').bind(cid).first();if(!c)throw new Error('Customer account not found.');const salt=crypto.randomUUID()+crypto.randomUUID(),hash=await accountPasswordHash(password,salt);await env.DB.prepare('UPDATE pm_customers SET password_hash=?,password_salt=?,updated_at=? WHERE id=?').bind(hash,salt,now(),cid).run();await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE customer_id=?').bind(cid).run();await accountActivity(env,c,'PASSWORD_RESET','Password reset by administrator.',req);await log(env,user.username,'CUSTOMER_PASSWORD_RESET',`Reset password for ${c.username}.`);return {success:true};}
   if(action==='getCustomerActivity'){const cid=clean(data.customerId),q=clean(data.search);let sql='SELECT id,customer_id,username,action,description,ip,created_at FROM pm_account_activity WHERE 1=1';const args=[];if(cid){sql+=' AND customer_id=?';args.push(cid)}if(q){sql+=' AND (username LIKE ? OR action LIKE ? OR description LIKE ?)';const x=`%${q}%`;args.push(x,x,x)}sql+=' ORDER BY created_at DESC LIMIT 500';const {results}=await env.DB.prepare(sql).bind(...args).all();return {success:true,activity:results};}
+  if(action==='pushNotification'){
+    const target=clean(data.target||'all').toLowerCase(),title=clean(data.title).slice(0,120),message=clean(data.message).slice(0,1000);
+    if(!title)throw new Error('Notification title is required.');
+    if(!message)throw new Error('Notification message is required.');
+    let customers=[];
+    if(target==='customer'){
+      const cid=clean(data.customerId);if(!cid)throw new Error('Select a customer.');
+      const c=await env.DB.prepare('SELECT id,username,name,status FROM pm_customers WHERE id=?').bind(cid).first();if(!c||c.status!=='Active')throw new Error('Active customer account not found.');customers=[c];
+    }else{
+      const r=await env.DB.prepare("SELECT id,username,name,status FROM pm_customers WHERE status='Active' ORDER BY name COLLATE NOCASE").all();customers=r.results||[];
+    }
+    for(const c of customers)await createCustomerNotification(env,c.id,{type:'system',category:'system',title,message});
+    await log(env,user.username,'PUSH_NOTIFICATION',`Sent notification to ${customers.length} customer account(s): ${title}`);
+    return {success:true,sent:customers.length};
+  }
   if(action==='getAdminDashboard'){const st=await getSettings(env);const pricing=requirePmPrintingPricing(await getPricing(env));const ink=pmInkSettings(st);return {success:true,accountManagement:await accountManagementOn(env),totalCustomers:num((await env.DB.prepare('SELECT COUNT(*) c FROM pm_customers').first())?.c),printingAvailable:st.printing_available!=='false',pickupLocation:st.pickup_location||'',serviceMessage:st.service_message||'',pricing,pmInkPricing:{blackInkRate:centsToNumber(ink.blackInkRateCents).toFixed(2),colorInkRate:centsToNumber(ink.colorInkRateCents).toFixed(2),minimumInkCharge:centsToNumber(ink.minInkChargeCents).toFixed(2),coverageThreshold:String(ink.coverageThresholdPercent),rounding:'NEAREST_WHOLE_PESO_HALF_UP'},locations:await getLocations(env,false),vouchers:(await listVouchers(env)),orders:await adminOrders(env,'',origin,100,apiPrefix)};}
   if(action==='getAdminOrders')return {success:true,orders:await adminOrders(env,clean(data.status),origin,data.limit,apiPrefix)};
   if(action==='updateOrderStatus')return await updateOrder(env,[clean(data.orderId)],clean(data.status),data.reason||'',user);
@@ -397,7 +434,7 @@ async function handleAdmin(env,req,action,data,origin,apiPrefix='/api'){const us
     await log(env,user.username,'DELETE_VOUCHER',`Deleted voucher ${code} at ${t}.`);
     return {success:true,vouchers:await listVouchers(env)};
   }
-  if(action==='resetPrintingData'){if(clean(data.confirm)!=='RESET')throw new Error('Type RESET to confirm.');let deleted=0;const prefixes=env.PM_PRINT?['pmprinting/','pmprint/orders/']:['printing/'];for(const prefix of prefixes){let cursor;do{const listed=await env.PRINT_FILES.list({prefix,cursor});for(const o of listed.objects||[]){try{await env.PRINT_FILES.delete(o.key);deleted++;}catch(_){}}cursor=listed.truncated?listed.cursor:undefined;}while(cursor);}const stmts=[env.DB.prepare('DELETE FROM voucher_redemptions'),env.DB.prepare('DELETE FROM orders')];await env.DB.batch(stmts);await log(env,user.username,'RESET_PRINTING_DATA',`Reset printing data; deleted ${deleted} R2 file(s).`);return {success:true,deleted};}
+  if(action==='resetPrintingData'){if(clean(data.confirm)!=='RESET')throw new Error('Type RESET to confirm.');let deleted=0;const prefixes=env.PM_PRINT?['pmprinting/','pmprint/orders/']:['printing/'];for(const prefix of prefixes){let cursor;do{const listed=await env.PRINT_FILES.list({prefix,cursor});for(const o of listed.objects||[]){try{await env.PRINT_FILES.delete(o.key);deleted++;}catch(_){}}cursor=listed.truncated?listed.cursor:undefined;}while(cursor);}const stmts=[env.DB.prepare('DELETE FROM voucher_redemptions'),env.DB.prepare('DELETE FROM notifications'),env.DB.prepare('DELETE FROM orders')];await env.DB.batch(stmts);await log(env,user.username,'RESET_PRINTING_DATA',`Reset printing data; deleted ${deleted} R2 file(s).`);return {success:true,deleted};}
   throw new Error('Unknown admin action.');
 }
 async function listVouchers(env){const {results}=await env.DB.prepare('SELECT * FROM vouchers ORDER BY created_at DESC').all();return results.map(v=>({code:v.code,type:v.type,value:num(v.value),minSpend:num(v.min_spend),maxDiscount:v.max_discount===null?null:num(v.max_discount),maxShippingDiscount:v.max_shipping_discount===null?null:num(v.max_shipping_discount),minPages:num(v.min_pages),minCopies:num(v.min_copies),totalUsageLimit:v.total_usage_limit===null?null:num(v.total_usage_limit),perDeviceLimit:num(v.per_device_limit,1),startAt:v.start_at,endAt:v.end_at,active:!!v.active,label:v.type==='percent'?`${num(v.value)}% OFF`:v.type==='fixed'?`₱${num(v.value).toFixed(2)} OFF`:'FREE DELIVERY'}));}
@@ -493,9 +530,12 @@ async function handle(request, env){
       const cid=clean(data.customerId);if(!cid)throw new Error('Customer account is required.');
       const customer=await env.DB.prepare('SELECT id,username,name FROM pm_customers WHERE id=?').bind(cid).first();if(!customer)throw new Error('Customer account not found.');
       const codes=[...new Set((Array.isArray(data.voucherCodes)?data.voucherCodes:[]).map(x=>clean(x).toUpperCase()).filter(Boolean))];
-      const valid=[];for(const code of codes){const v=await env.DB.prepare('SELECT code FROM vouchers WHERE code=?').bind(code).first();if(v)valid.push(code);}
+      const valid=[];for(const code of codes){const v=await env.DB.prepare('SELECT code,type,value FROM vouchers WHERE code=?').bind(code).first();if(v)valid.push(code);}
+      const oldLinks=await env.DB.prepare('SELECT voucher_code FROM pm_customer_vouchers WHERE customer_id=?').bind(cid).all();
+      const oldSet=new Set((oldLinks.results||[]).map(x=>String(x.voucher_code||'').toUpperCase()));
       await env.DB.prepare('DELETE FROM pm_customer_vouchers WHERE customer_id=?').bind(cid).run();
       for(const code of valid)await env.DB.prepare('INSERT INTO pm_customer_vouchers(customer_id,voucher_code,assigned_at,created_at,updated_at) VALUES(?,?,?,?,?)').bind(cid,code,now(),now(),now()).run();
+      for(const code of valid.filter(x=>!oldSet.has(x))) await createCustomerNotification(env,cid,{type:'voucher',category:'voucher',title:'New voucher available',message:`Voucher ${code} has been added to your PM PRINT account.`});
       await accountActivity(env,customer,'VOUCHERS_UPDATED',`Administrator linked ${valid.length} voucher(s) to this account.`,request);await log(env,admin.username,'CUSTOMER_VOUCHERS_UPDATED',`Updated vouchers for customer ${customer.username}.`);
       return json({success:true,customerId:cid,linked:valid});
     }
@@ -535,21 +575,39 @@ async function handle(request, env){
       const ink=pmInkSettings(await getSettings(env));return json({success:true,pricing:{blackInkRate:centsToNumber(ink.blackInkRateCents).toFixed(2),colorInkRate:centsToNumber(ink.colorInkRateCents).toFixed(2),minimumInkCharge:centsToNumber(ink.minInkChargeCents).toFixed(2),coverageThreshold:String(ink.coverageThresholdPercent),rounding:'NEAREST_WHOLE_PESO_HALF_UP'}});
     }
     if(action==='getNotifications'){
+      const managed=await accountManagementOn(env);
+      if(managed){
+        const c=await requireCustomer(env,request);
+        const {results}=await env.DB.prepare(`SELECT id,order_id,type,title,message,created_at,read_at,category FROM notifications WHERE customer_id=? ORDER BY created_at DESC LIMIT 100`).bind(c.id).all();
+        return json({success:true,notifications:results.map(n=>({id:n.id,orderId:n.order_id||'',type:n.type,title:n.title,message:n.message,createdAt:n.created_at,readAt:n.read_at,category:n.category||'system'}))});
+      }
       const deviceId=clean(data.deviceId);if(!deviceId)return json({success:true,notifications:[]});
-      const {results}=await env.DB.prepare(`SELECT n.id,n.order_id,n.type,n.title,n.message,n.created_at,n.read_at FROM notifications n INNER JOIN orders o ON o.id=n.order_id WHERE o.device_id=? ORDER BY n.created_at DESC LIMIT 100`).bind(deviceId).all();
-      return json({success:true,notifications:results.map(n=>({id:n.id,orderId:n.order_id,type:n.type,title:n.title,message:n.message,createdAt:n.created_at,readAt:n.read_at}))});
+      const {results}=await env.DB.prepare(`SELECT n.id,n.order_id,n.type,n.title,n.message,n.created_at,n.read_at,n.category FROM notifications n INNER JOIN orders o ON o.id=n.order_id WHERE o.device_id=? ORDER BY n.created_at DESC LIMIT 100`).bind(deviceId).all();
+      return json({success:true,notifications:results.map(n=>({id:n.id,orderId:n.order_id||'',type:n.type,title:n.title,message:n.message,createdAt:n.created_at,readAt:n.read_at,category:n.category||'printing'}))});
     }
     if(action==='markNotificationRead'){
-      const deviceId=clean(data.deviceId),nid=clean(data.notificationId);if(!deviceId||!nid)return json({success:false,error:'Missing notification information.'},400);
-      await env.DB.prepare(`UPDATE notifications SET read_at=? WHERE id=? AND EXISTS(SELECT 1 FROM orders o WHERE o.id=notifications.order_id AND o.device_id=?)`).bind(now(),nid,deviceId).run();return json({success:true});
+      const nid=clean(data.notificationId);if(!nid)return json({success:false,error:'Notification ID is required.'},400);
+      const managed=await accountManagementOn(env);
+      if(managed){const c=await requireCustomer(env,request);await env.DB.prepare('UPDATE notifications SET read_at=? WHERE id=? AND customer_id=?').bind(now(),nid,c.id).run();}
+      else{const deviceId=clean(data.deviceId);if(!deviceId)return json({success:false,error:'Missing notification information.'},400);await env.DB.prepare(`UPDATE notifications SET read_at=? WHERE id=? AND EXISTS(SELECT 1 FROM orders o WHERE o.id=notifications.order_id AND o.device_id=?)`).bind(now(),nid,deviceId).run();}
+      return json({success:true});
     }
     if(action==='markNotificationsRead'){
-      const deviceId=clean(data.deviceId),ids=Array.isArray(data.notificationIds)?data.notificationIds.map(clean).filter(Boolean):[];if(!deviceId||!ids.length)return json({success:true});
-      for(const nid of ids)await env.DB.prepare(`UPDATE notifications SET read_at=? WHERE id=? AND EXISTS(SELECT 1 FROM orders o WHERE o.id=notifications.order_id AND o.device_id=?)`).bind(now(),nid,deviceId).run();return json({success:true});
+      const ids=Array.isArray(data.notificationIds)?data.notificationIds.map(clean).filter(Boolean):[];if(!ids.length)return json({success:true});
+      const managed=await accountManagementOn(env);
+      if(managed){const c=await requireCustomer(env,request);for(const nid of ids)await env.DB.prepare('UPDATE notifications SET read_at=? WHERE id=? AND customer_id=?').bind(now(),nid,c.id).run();}
+      else{const deviceId=clean(data.deviceId);if(!deviceId)return json({success:false,error:'Missing notification information.'},400);for(const nid of ids)await env.DB.prepare(`UPDATE notifications SET read_at=? WHERE id=? AND EXISTS(SELECT 1 FROM orders o WHERE o.id=notifications.order_id AND o.device_id=?)`).bind(now(),nid,deviceId).run();}
+      return json({success:true});
+    }
+    if(action==='clearNotifications'){
+      const managed=await accountManagementOn(env);
+      if(managed){const c=await requireCustomer(env,request);await env.DB.prepare('DELETE FROM notifications WHERE customer_id=?').bind(c.id).run();}
+      else{const deviceId=clean(data.deviceId);if(!deviceId)return json({success:false,error:'Missing notification information.'},400);await env.DB.prepare('DELETE FROM notifications WHERE id IN (SELECT n.id FROM notifications n INNER JOIN orders o ON o.id=n.order_id WHERE o.device_id=?)').bind(deviceId).run();}
+      return json({success:true});
     }
     if(action==='createOrder')return json(await createOrder(env,data,origin,apiPrefix,request));
 
-    const adminActions=['getAdminDashboard','getAdminOrders','updateOrderStatus','updateOrdersStatusBulk','setPrintingAvailability','setPickupLocation','setServiceMessage','getPricing','savePricing','getPmInkPricing','savePmInkPricing','saveInkOverride','getLocations','saveLocation','deleteLocation','createVoucher','listVouchers','setVoucherActive','resetPrintingData','clearPrintingStorage','getAccountSettings','setAccountManagement','getCustomerAccounts','createCustomerAccount','updateCustomerAccount','deleteCustomerAccount','resetCustomerPassword','getCustomerActivity','getCustomerVoucherLinks','setCustomerVoucherLinks'];
+    const adminActions=['getAdminDashboard','getAdminOrders','updateOrderStatus','updateOrdersStatusBulk','setPrintingAvailability','setPickupLocation','setServiceMessage','getPricing','savePricing','getPmInkPricing','savePmInkPricing','saveInkOverride','getLocations','saveLocation','deleteLocation','createVoucher','listVouchers','setVoucherActive','resetPrintingData','clearPrintingStorage','getAccountSettings','setAccountManagement','getCustomerAccounts','createCustomerAccount','updateCustomerAccount','deleteCustomerAccount','resetCustomerPassword','getCustomerActivity','getCustomerVoucherLinks','setCustomerVoucherLinks','pushNotification'];
     if(adminActions.includes(action)){
       if(action==='setServiceMessage'){
         const user=await requireAdmin(env,request);const message=clean(data.message).slice(0,500);
