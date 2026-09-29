@@ -2972,6 +2972,9 @@ window.adminSecret='';
 
 async function loadAdminDashboard(){
       initializeAdminDynamicViews();
+      openAdminModule('orders',{load:false});
+      const ordersBox=$('adminOrders');
+      if(ordersBox)ordersBox.innerHTML='<div style="font-size:11px;color:var(--muted);padding:20px;text-align:center">Loading orders…</div>';
       try{
         const data=await adminCall('getAdminDashboard',{});
         updateAdminService(data.printingAvailable);
