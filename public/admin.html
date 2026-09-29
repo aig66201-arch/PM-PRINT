@@ -2790,11 +2790,16 @@
 #adminDashboard .admin-main-content .admin-module-drawer,
 #adminDashboard .admin-main-content .admin-module-body{border:0!important;outline:0!important;box-shadow:none!important;}
 #adminDashboard .admin-main-content .admin-module-body>.admin-card{border:0!important;}
-<style id="admin-dashboard-edge-cleanup">
-#adminPage:has(#adminDashboard[style*="display: block"]){width:100%!important;max-width:none!important;margin:0!important;padding:0!important;}
-#adminDashboard{width:100%!important;max-width:none!important;margin:0!important;padding:0!important;}
-#adminDashboard .admin-hamburger-bar{width:100%!important;margin:0!important;top:0!important;left:0!important;right:0!important;border:0!important;outline:0!important;box-shadow:none!important;border-radius:0!important;}
 </style>
+
+<style id="admin-fullscreen-header-cleanup">
+html,body{margin:0!important;padding:0!important;width:100%!important;max-width:none!important;}
+body.admin-standalone{margin:0!important;padding:0!important;width:100%!important;max-width:none!important;overflow-x:hidden;}
+body.admin-standalone #adminPage{display:block!important;width:100%!important;max-width:none!important;margin:0!important;padding:0!important;}
+body.admin-standalone #adminDashboard{width:100%!important;max-width:none!important;margin:0!important;padding:0!important;}
+body.admin-standalone #adminDashboard .admin-hamburger-bar{display:flex!important;width:100%!important;max-width:none!important;box-sizing:border-box!important;margin:0!important;padding:16px 18px!important;position:sticky!important;top:0!important;left:0!important;right:0!important;border:0!important;outline:0!important;border-radius:0!important;box-shadow:none!important;}
+body.admin-standalone #adminDashboard .admin-main-content{width:100%!important;max-width:none!important;box-sizing:border-box!important;margin:0!important;padding:0!important;border:0!important;outline:0!important;box-shadow:none!important;}
+@media(max-width:600px){body.admin-standalone #adminDashboard .admin-hamburger-bar{margin:0!important;padding:14px 12px!important;top:0!important;}body.admin-standalone #adminDashboard .admin-main-content{padding:0!important;}}
 </style>
 </head>
 <body class="pm-print-page admin-standalone">
