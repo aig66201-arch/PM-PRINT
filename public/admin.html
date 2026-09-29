@@ -3341,12 +3341,25 @@ async function loadAdminDashboard(){
     function bookletOrder(pageNumbers){
       const pages=pageNumbers.slice();
       while(pages.length%4)pages.push(null);
-      const out=[];
-      for(let i=0;i<pages.length;i+=4){
-        const a=pages[i],b=pages[i+1],c=pages[i+2],d=pages[i+3];
-        out.push([d,a],[b,c]);
+      const front=[],back=[];
+      for(let left=0,right=pages.length-1;left<right;left+=2,right-=2){
+        front.push([pages[right],pages[left]]);
+        back.push([pages[left+1],pages[right-1]]);
       }
+      const out=[];
+      for(let i=0;i<front.length;i++)out.push(front[i],back[i]);
       return out;
+    }
+
+    function bookletSidePairs(pageNumbers,side){
+      const pages=pageNumbers.slice();
+      while(pages.length%4)pages.push(null);
+      const front=[],back=[];
+      for(let left=0,right=pages.length-1;left<right;left+=2,right-=2){
+        front.push([pages[right],pages[left]]);
+        back.push([pages[left+1],pages[right-1]]);
+      }
+      return side==='back'?back:front;
     }
 
     function updatePrintAssistantPreview(){
@@ -3412,10 +3425,11 @@ async function loadAdminDashboard(){
         const source=await response.arrayBuffer();
         const src=await lib.PDFDocument.load(source,{ignoreEncryption:false});
         const out=await lib.PDFDocument.create();
-        if(layout==='booklet'){
-          const imposed=bookletOrder(selected);
+        if(layout==='booklet-duplex'){
+          const side=button?.dataset?.duplexSide==='back'?'back':'front';
+          const pairs=bookletSidePairs(selected,side);
           const size=paper==='A4'?[841.89,595.28]:[792,612];
-          for(const pair of imposed){
+          for(const pair of pairs){
             const page=out.addPage(size);
             const [pw,ph]=size;
             for(let slot=0;slot<2;slot++){
