@@ -2436,6 +2436,21 @@
 @media(max-width:600px){.admin-hamburger-bar{top:6px;margin-left:2px;margin-right:2px}.admin-hamburger-brand small{display:none}.admin-hamburger-brand b{font-size:12px}.admin-menu-drawer{width:min(92vw,360px)}}
 .admin-module-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}.admin-module-menu button{border:1px solid var(--line);background:#fff;border-radius:16px;padding:16px;text-align:left;display:grid;grid-template-columns:38px 1fr;grid-template-rows:auto auto;column-gap:10px;cursor:pointer;box-shadow:0 5px 18px rgba(0,0,0,.05)}.admin-module-menu button span{grid-row:1/3;font-size:25px;display:grid;place-items:center}.admin-module-menu button b{font-size:13px;color:var(--g2)}.admin-module-menu button small{font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4}.admin-module-overlay{position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:500;display:none;pointer-events:none}.admin-module-overlay.show{display:block;pointer-events:auto}.admin-module-drawer{position:fixed;z-index:501;top:0;right:0;height:100dvh;width:min(500px,94vw);background:#f7fbf8;box-shadow:-12px 0 35px rgba(0,0,0,.18);transform:translate3d(110%,0,0);visibility:hidden;pointer-events:none;transition:transform .25s ease,visibility 0s linear .25s;display:flex;flex-direction:column;will-change:transform}.admin-module-drawer.orders{width:min(900px,96vw)}.admin-module-drawer.open{transform:translate3d(0,0,0);visibility:visible;pointer-events:auto;transition:transform .25s ease,visibility 0s linear 0s}.admin-module-head{padding:18px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.admin-module-head b{display:block;font-size:17px;color:var(--g2)}.admin-module-head small{display:block;color:var(--muted);font-size:10px;line-height:1.4;margin-top:4px}.admin-module-head button{width:36px;height:36px;border:1px solid var(--line);border-radius:50%;background:#fff;font-size:25px;line-height:1;cursor:pointer}.admin-module-body{padding:16px;overflow:auto;flex:1}.admin-module-body .admin-card{margin-bottom:12px}.admin-order-details{margin-top:10px;border:1px solid var(--line);border-radius:12px;background:#fbfdfb;overflow:hidden}.admin-order-details summary{cursor:pointer;padding:10px 12px;font-weight:800;font-size:11px;color:var(--g2);list-style:none}.admin-order-details summary::-webkit-details-marker{display:none}.admin-order-details summary:before{content:'＋';margin-right:6px}.admin-order-details[open] summary:before{content:'−'}.admin-detail-group{margin:0 10px 10px;border-top:1px solid #e5ece7;padding-top:9px}.admin-detail-group:first-child{border-top:0}.admin-detail-title{font-size:9px;font-weight:900;letter-spacing:.06em;color:var(--muted);margin-bottom:7px}.admin-order-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.admin-detail-item{background:#fff;border:1px solid #e7ede9;border-radius:9px;padding:8px}.admin-detail-item small{display:block;color:var(--muted);font-size:8px;text-transform:uppercase}.admin-detail-item b{display:block;font-size:10px;margin-top:2px;word-break:break-word}.admin-order-controls{display:grid;grid-template-columns:1fr 1.5fr;gap:8px;margin-top:10px}.admin-order-controls .admin-field{margin:0}.admin-order-controls .admin-field>span{display:block;font-size:8px;font-weight:800;color:var(--muted);margin-bottom:4px}@media(max-width:767px){.admin-module-menu{grid-template-columns:1fr}.admin-module-drawer.orders{width:100%}.admin-module-drawer{width:min(92vw,420px)}.admin-module-body{padding:12px}.admin-order-grid,.admin-order-controls{grid-template-columns:1fr 1fr}.admin-bulk-toolbar{flex-wrap:wrap}.admin-bulk-toolbar select,.admin-bulk-toolbar button{width:100%}}
 
+/* DYNAMIC VIEW MAIN CONTENT OVERRIDES */
+.admin-hamburger-bar{justify-content:flex-start;padding:16px 18px;margin:0 0 18px;min-height:72px;gap:14px;position:sticky;top:0;border-radius:0;border-left:0;border-right:0;box-shadow:0 3px 14px rgba(8,45,104,.14)}
+.admin-hamburger-actions{order:0}
+.admin-hamburger-brand{order:1;flex:1}
+.admin-hamburger-brand img{width:42px;height:42px}
+.admin-hamburger-brand b{font-size:15px}
+.admin-hamburger-brand small{font-size:9px}
+.admin-main-content{width:100%;max-width:none;margin:0;padding:0 18px 28px}
+.admin-module-drawer{position:static!important;top:auto!important;right:auto!important;width:100%!important;max-width:none!important;height:auto!important;min-height:0;background:transparent!important;box-shadow:none!important;transform:none!important;visibility:hidden!important;pointer-events:none!important;display:none!important;transition:none!important}
+.admin-module-drawer.open{display:block!important;visibility:visible!important;pointer-events:auto!important}
+.admin-module-head{display:none!important}
+.admin-module-body{padding:0!important;overflow:visible!important}
+.admin-main-welcome{margin:0 auto;max-width:900px}
+@media(max-width:600px){.admin-hamburger-bar{margin:0 0 14px;padding:14px 12px;min-height:64px}.admin-main-content{padding:0 12px 24px}.admin-hamburger-brand b{font-size:13px}.admin-hamburger-brand small{font-size:8px}}
+
     /* ===== CUSTOMER STATUS MOBILE/RESPONSIVE FIX ===== */
     .status-steps{
       width:100%;
@@ -2791,8 +2806,8 @@
 
     <div id="adminDashboard" style="display:none">
       <div class="admin-hamburger-bar">
-        <div class="admin-hamburger-brand"><img src="/assets/pmprintlogo.png" alt="PM PRINT"><div><b>PM PRINT Admin</b><small>Administrator Dashboard</small></div></div>
         <div class="admin-hamburger-actions"><button class="admin-hamburger-btn" type="button" aria-label="Open admin menu" onclick="toggleAdminHamburger()">☰</button></div>
+        <div class="admin-hamburger-brand"><img src="/assets/pmprintlogo.png" alt="PM PRINT"><div><b id="adminDynamicHeaderTitle">PM PRINT Administration</b><small id="adminDynamicHeaderSubtitle">Select a section from the hamburger menu</small></div></div>
       </div>
       <div class="admin-menu-drawer-overlay" id="adminMenuDrawerOverlay" onclick="closeAdminHamburger()"></div>
       <aside class="admin-menu-drawer" id="adminMenuDrawer" aria-label="Admin navigation">
@@ -2982,14 +2997,31 @@ async function loadAdminDashboard(){
       openAdminModule(name);
     }
 
+    const ADMIN_MENU_TITLES={
+      orders:['Printing Orders','Manage, inspect and update customer printing orders'],
+      service:['Printing Service','Control ordering availability and customer service messages'],
+      pickup:['Pickup Location','Manage the customer pickup location'],
+      pricing:['Printing Pricing','Manage printing and ink pricing'],
+      locations:['Delivery Locations','Manage delivery locations and fees'],
+      vouchers:['Vouchers','Create and manage customer vouchers'],
+      accounts:['Customer Accounts','Manage customer accounts, vouchers and activity'],
+      notifications:['Notifications','Send notifications to PM PRINT customers'],
+      storage:['PM PRINT Storage','Manage printing-service storage and reset tools']
+    };
+    function setAdminDynamicHeader(name){
+      const title=$('adminDynamicHeaderTitle'),sub=$('adminDynamicHeaderSubtitle');
+      const item=ADMIN_MENU_TITLES[name]||['PM PRINT Administration','Select a section from the hamburger menu'];
+      if(title)title.textContent=item[0];
+      if(sub)sub.textContent=item[1];
+    }
     function initializeAdminDynamicViews(){
-      const main=$('adminMainContent');
-      if(!main||main.dataset.ready==='1')return;
+      const main=$('adminMainContent'); if(!main||main.dataset.ready==='1')return;
       document.querySelectorAll('#adminDashboard > .admin-module-drawer').forEach(el=>main.appendChild(el));
       main.dataset.ready='1';
       document.querySelectorAll('#adminDashboard > .admin-module-menu').forEach(el=>el.style.display='none');
       const overlay=$('adminModuleOverlay'); if(overlay)overlay.remove();
-      document.querySelectorAll('#adminMainContent .admin-module-head button').forEach(btn=>{btn.innerHTML='← Back';btn.setAttribute('aria-label','Back to admin menu');});
+      document.querySelectorAll('#adminMainContent .admin-module-head button').forEach(btn=>btn.remove());
+      setAdminDynamicHeader('');
     }
     function openAdminModule(name){
       initializeAdminDynamicViews();
@@ -2998,6 +3030,8 @@ async function loadAdminDashboard(){
       const el=$('adminModule_'+name);
       if(!el)return;
       el.classList.add('open');
+      setAdminDynamicHeader(name);
+      closeAdminHamburger();
       window.scrollTo({top:0,behavior:'smooth'});
       if(name==='orders')loadAdminOrders();
       if(name==='notifications')loadAdminNotificationCustomers();
@@ -3006,6 +3040,7 @@ async function loadAdminDashboard(){
       initializeAdminDynamicViews();
       document.querySelectorAll('#adminMainContent .admin-module-drawer').forEach(el=>el.classList.remove('open'));
       const welcome=$('adminMainWelcome'); if(welcome)welcome.style.display='block';
+      setAdminDynamicHeader('');
       window.scrollTo({top:0,behavior:'smooth'});
     }
     function adminFilterChanged(select){ const value=select?.value||''; const box=$('adminOrders'); if(box)box.innerHTML='<div style="font-size:11px;color:var(--muted);padding:16px;text-align:center">Loading '+escapeHtml(value||'active orders')+'…</div>'; loadAdminOrders(); }
