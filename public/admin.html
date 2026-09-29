@@ -3258,7 +3258,7 @@ async function loadAdminDashboard(){
       if(!orders.length){box.innerHTML='<div style="font-size:11px;color:var(--muted);padding:20px;text-align:center">No orders found for this filter.</div>';return;}
       const statuses=['Pending','Accepted','Declined','Printing','Completed','In Transit','Ready to Pickup','Delivered'];
       box.innerHTML=orders.map(o=>{
-        window.adminOrdersById[safeId(o.OrderID)]=o; const oid=safeId(o.OrderID); const select=statuses.map(st=>'<option '+(st===o.Status?'selected':'')+'>'+st+'</option>').join(''); const copies=Math.max(1,Number(o.Copies||1)); const pages=Math.max(0,Number(o.Pages||0)); const printedSides=Math.max(0,Number(o.PrintedSides||0)); const sheets=(o.Format==='Booklet'||o.Sides==='Double-sided'||o.Sides==='Back-to-back')?Math.max(1,Math.ceil(pages/2)*copies):pages*copies; const layout=o.Format==='Booklet'?'Booklet layout':((o.Sides==='Double-sided'||o.Sides==='Back-to-back')?'Back-to-back / Duplex':'Single-sided');
+        window.adminOrdersById[safeId(o.OrderID)]=o; const oid=safeId(o.OrderID); const select=statuses.map(st=>'<option '+(st===o.Status?'selected':'')+'>'+st+'</option>').join(''); const copies=Math.max(1,Number(o.Copies||1)); const pages=Math.max(0,Number(o.Pages||0)); const printedSides=Math.max(0,Number(o.PrintedSides||0)); const sheets=o.Format==='Booklet'?Math.max(1,Math.ceil(pages/4))*copies:((o.Sides==='Double-sided'||o.Sides==='Back-to-back')?Math.max(1,Math.ceil(pages/2))*copies:pages*copies); const layout=o.Format==='Booklet'?'Booklet layout':((o.Sides==='Double-sided'||o.Sides==='Back-to-back')?'Back-to-back / Duplex':'Single-sided');
         return '<div class="admin-order-card"><div class="admin-order-head"><label class="admin-order-select"><input type="checkbox" class="admin-order-check" value="'+escapeAttr(o.OrderID)+'"> Select</label><span class="admin-order-id">'+escapeHtml(o.OrderID)+'</span><b>'+pmWholeMoney(o.Total)+'</b></div><div class="admin-order-meta"><strong>'+escapeHtml(o.StudentName||'')+'</strong><br>'+escapeHtml(o.FileName||'')+'<br><span>'+escapeHtml(o.Fulfillment||'')+(o.Location?' • '+escapeHtml(o.Location):'')+'</span></div><details class="admin-order-details"><summary>View order details</summary><div class="admin-detail-group"><div class="admin-detail-title">PRINT SETTINGS</div><div class="admin-order-grid">'+adminDetail('Color',o.Color)+adminDetail('Content Type',o.ContentType)+adminDetail('Pages',pages)+adminDetail('Copies',copies)+adminDetail('Format',o.Format)+adminDetail('Print Side',o.Sides)+adminDetail('Paper Size',o.PaperSize)+adminDetail('Binding',o.Binding)+'</div></div><div class="admin-detail-group"><div class="admin-detail-title">PRINTING CALCULATION</div><div class="admin-order-grid">'+adminDetail('Sheets Total',sheets)+adminDetail('Printed Sides',printedSides)+adminDetail('Layout',layout)+adminDetail('Printing Cost',pmWholeMoney(o.PrintingCost))+adminDetail('Paper Cost',pmWholeMoney(o.PaperCost))+adminDetail('Voucher Discount',pmPreciseMoney(o.Discount))+adminDetail('Centavo Discount',pmPreciseMoney(o.CentavoDiscount||0))+'</div></div>'+renderAdminInkSection(o,oid)+'<div class="admin-detail-group"><div class="admin-detail-title">ORDER / DELIVERY</div><div class="admin-order-grid">'+adminDetail('Fulfillment',o.Fulfillment)+adminDetail('Location',o.Location)+adminDetail('Delivery Fee',pmWholeMoney(o.DeliveryFee))+adminDetail('Voucher',o.VoucherCode||'-')+adminDetail('Status',o.Status)+adminDetail('Updated',formatAdminDate(o.UpdatedAt))+'</div></div></details><div class="admin-order-controls"><label class="admin-field"><span>STATUS</span><select id="adminStatus_'+oid+'">'+select+'</select></label><label class="admin-field"><span>DECLINE REASON</span><input id="adminReason_'+oid+'" placeholder="Required only for Declined" value="'+escapeAttr(o.StatusReason||'')+'"></label></div><div class="admin-order-buttons"><button class="print" onclick="openPrintAssistantById(\''+escapeJs(o.OrderID)+'\')">&#128424; Print</button><button class="save" onclick="saveAdminOrder(\''+escapeJs(o.OrderID)+'\',this)">Save Status</button>'+(o.FileLink?'<button class="view" onclick="window.open(\''+escapeJs(o.FileLink)+'\',\'_blank\')">Open File</button>':'')+'</div></div>';
       }).join('');
     }
@@ -3296,7 +3296,6 @@ async function loadAdminDashboard(){
     }
 
     function openPrintAssistant(order){
-      closeAdminModule();
       window.currentPrintOrder=order;
       $('printModalTitle').textContent='Print Order '+(order.OrderID||'');
       const pages=Math.max(1,Number(order.Pages||1));
@@ -3315,7 +3314,7 @@ async function loadAdminDashboard(){
         '<div class="print-assistant-settings">'+
           '<label class="admin-field"><span>PAGE RANGE</span><input id="printPageRange" value="'+escapeAttr(defaultRange)+'" placeholder="Example: 1-8,10,12-14"></label>'+ 
           '<label class="admin-field"><span>COLOR MODE</span><select id="printColorMode"><option value="color" '+(String(order.Color||'').toLowerCase().includes('black')?'':'selected')+'>Color</option><option value="bw" '+(String(order.Color||'').toLowerCase().includes('black')?'selected':'')+'>Black & White</option></select></label>'+ 
-          '<label class="admin-field"><span>LAYOUT</span><select id="printLayout" onchange="updatePrintAssistantPreview()"><option value="normal">Normal</option><option value="manual-duplex">Back-to-back — Manual</option><option value="booklet" '+(isBooklet?'selected':'')+'>Booklet — A4 Landscape</option></select></label>'+ 
+          '<label class="admin-field"><span>PRINT MODE</span><select id="printLayout" onchange="updatePrintAssistantPreview()"><option value="normal">Sheet per Page</option><option value="manual-duplex">Back-to-back — Manual</option><option value="booklet-duplex" '+(isBooklet?'selected':'')+'>Booklet — Back-to-back</option></select></label>'+ 
           '<label class="admin-field"><span>ORIENTATION</span><select id="printOrientation"><option value="portrait">Portrait</option><option value="landscape" '+(isBooklet?'selected':'')+'>Landscape</option></select></label>'+ 
           '<label class="admin-field"><span>PAPER</span><select id="printPaper"><option value="A4" '+(String(order.PaperSize||'A4').toUpperCase()==='A4'?'selected':'')+'>A4</option><option value="Letter">Letter</option></select></label>'+ 
           '<label class="admin-field"><span>COPIES</span><input id="printCopies" type="number" min="1" value="'+copies+'"></label>'+ 
@@ -3358,15 +3357,28 @@ async function loadAdminDashboard(){
       const mode=$('printColorMode')?.value==='bw'?'Black & White':'Color';
       const copies=Math.max(1,Number($('printCopies')?.value||1));
       const preview=$('printAssistantPreview');if(!preview)return;
+      const manual=$('manualDuplexButtons');
+      if(manual)manual.style.display=(layout==='manual-duplex'||layout==='booklet-duplex')?'block':'none';
+      const bookletButtons=document.querySelectorAll('#manualDuplexButtons button');
+      if(bookletButtons.length){
+        bookletButtons[0].textContent=layout==='booklet-duplex'?'🖨 Print Booklet Front':'🖨 Print Front';
+        bookletButtons[1].textContent=layout==='booklet-duplex'?'🖨 Print Booklet Back':'🖨 Print Back';
+      }
       if(!selected.length){preview.innerHTML='<strong>No valid pages selected</strong>Enter a page range between 1 and '+total+'.';return;}
-      if(layout==='booklet'){
-        const sheets=bookletOrder(selected),shown=sheets.slice(0,8).map((pair,i)=>'Sheet '+(i+1)+': '+(pair[0]||'Blank')+' | '+(pair[1]||'Blank')).join('<br>');
-        preview.innerHTML='<strong>BOOKLET PREVIEW</strong>'+selected.length+' selected page(s) → '+sheets.length+' A4 landscape side(s), '+mode+', '+copies+' copy/copies.<br>'+shown+(sheets.length>8?'<br>…':'');
+      if(layout==='booklet-duplex'){
+        const imposed=bookletOrder(selected);
+        const physicalSheets=imposed.length/2;
+        const front=imposed.filter((_,i)=>i%2===0);
+        const back=imposed.filter((_,i)=>i%2===1);
+        const frontText=front.map((pair,i)=>'Sheet '+(i+1)+' Front: '+(pair[0]||'Blank')+' | '+(pair[1]||'Blank')).join('<br>');
+        const backText=back.map((pair,i)=>'Sheet '+(i+1)+' Back: '+(pair[0]||'Blank')+' | '+(pair[1]||'Blank')).join('<br>');
+        preview.innerHTML='<strong>BOOKLET BACK-TO-BACK PREVIEW</strong>'+selected.length+' page(s) → '+physicalSheets+' physical sheet(s), '+(physicalSheets*2)+' printed side(s) per copy, A4 Landscape, '+mode+', '+copies+' copy/copies.<br><b>Front</b><br>'+frontText+'<br><b>Back</b><br>'+backText+'<br><span style="color:var(--muted)">Print Booklet Front first, manually flip/reinsert the sheets, then print Booklet Back.</span>';
       }else if(layout==='manual-duplex'){
         const front=selected.filter(n=>n%2===1),back=selected.filter(n=>n%2===0).reverse();
-        preview.innerHTML='<strong>MANUAL BACK-TO-BACK PREVIEW</strong>'+selected.length+' selected page(s) → '+Math.ceil(selected.length/2)+' sheet(s), '+mode+', '+copies+' copy/copies.<br>Front: '+(front.length?front.join(', '):'None')+'<br>Back: '+(back.length?back.join(', '):'None')+'<br><span style="color:var(--muted)">Print Front first, manually flip/reinsert the printed stack, then Print Back.</span>';
+        preview.innerHTML='<strong>MANUAL BACK-TO-BACK PREVIEW</strong>'+selected.length+' selected page(s) → '+Math.ceil(selected.length/2)+' sheet(s), '+mode+', '+copies+' copy/copies.<br><b>Front:</b> '+(front.length?front.join(', '):'None')+'<br><b>Back:</b> '+(back.length?back.join(', '):'None')+'<br><span style="color:var(--muted)">Print Front first, manually flip/reinsert the printed stack, then Print Back.</span>';
       }else{
-        preview.innerHTML='<strong>PRINT PREVIEW</strong>'+selected.length+' selected page(s), '+mode+', A4 '+(($('printOrientation')?.value||'portrait'))+', '+copies+' copy/copies.';
+        const list=selected.map((n,i)=>'Sheet '+(i+1)+': Page '+n).join('<br>');
+        preview.innerHTML='<strong>SHEET-PER-PAGE PREVIEW</strong>'+selected.length+' sheet(s), '+mode+', '+($('printPaper')?.value||'A4')+' '+(($('printOrientation')?.value||'portrait'))+', '+copies+' copy/copies.<br>'+list;
       }
     }
 
@@ -3435,8 +3447,9 @@ async function loadAdminDashboard(){
         if(!win)throw new Error('The browser blocked the print-ready PDF window. Allow pop-ups for this admin page.');
         const mode=$('printColorMode')?.value==='bw'?'Black & White':'Color';
         const side=button?.dataset?.duplexSide;
-        setTimeout(()=>{try{win.document.title='PM PRINT '+o.OrderID+' • '+mode+' • '+(layout==='booklet'?'Booklet':(layout==='manual-duplex'?(side==='back'?'Back':'Front'):'Print'))}catch(e){}},500);
-        adminShowToast(layout==='manual-duplex'?(side==='back'?'Back-side PDF prepared.':'Front-side PDF prepared.'):'Print-ready PDF prepared. Use Chrome Print Preview to choose the printer and final color/duplex settings.');
+        const label=layout==='booklet-duplex'?('Booklet '+(side==='back'?'Back':'Front')):(layout==='manual-duplex'?(side==='back'?'Back':'Front'):'Print');
+        setTimeout(()=>{try{win.document.title='PM PRINT '+o.OrderID+' • '+mode+' • '+label}catch(e){}},500);
+        adminShowToast(layout==='booklet-duplex'?(side==='back'?'Booklet back PDF prepared.':'Booklet front PDF prepared.'):(layout==='manual-duplex'?(side==='back'?'Back-side PDF prepared.':'Front-side PDF prepared.'):'Print-ready PDF prepared. Use Chrome Print Preview to choose the printer and final color/duplex settings.'));
       }catch(e){adminShowToast(e.message||'Could not prepare the print-ready PDF.');}
       finally{if(button)adminButtonDone(button);}
     }
