@@ -3137,7 +3137,7 @@ async function loadAdminDashboard(){
         const reason=$('adminReason_'+safeId(orderId)).value.trim();
         if(status==='Declined'&&!reason){adminShowToast('A reason is required when declining an order.');adminButtonDone(button);return;}
         const result=await adminCall('updateOrderStatus',{orderId:orderId,status:status,reason:reason});
-        adminShowToast('Saved: Order '+orderId+' updated to '+result.order.Status+'.');
+        adminShowToast('Saved: Order '+orderId+' updated to '+status+'.');
         await loadAdminOrders();
       }catch(e){adminShowToast(e.message||'Could not update order.');}
       finally{adminButtonDone(button);}
