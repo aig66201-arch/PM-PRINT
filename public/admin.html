@@ -2301,6 +2301,12 @@
 .print-modal-close{border:0;background:#edf5ef;color:var(--g);width:34px;height:34px;border-radius:10px;font-size:20px}
 .print-modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .print-modal-actions button{flex:1;min-width:150px}
+.print-assistant-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:12px}
+.print-assistant-settings .full{grid-column:1/-1}
+.print-assistant-preview{margin-top:12px;padding:11px;border:1px solid var(--line);border-radius:12px;background:#f8fbf9;font-size:10px;line-height:1.55}
+.print-assistant-preview strong{display:block;color:var(--g2);margin-bottom:4px}
+.print-assistant-note{font-size:9px;color:var(--muted);line-height:1.45;margin-top:8px}
+@media(max-width:767px){.print-assistant-settings{grid-template-columns:1fr}.print-assistant-settings .full{grid-column:auto}}
 @media(max-width:767px){.admin-order-toolbar{align-items:stretch}.admin-order-toolbar .admin-btn{width:100%}.admin-order-grid{grid-template-columns:1fr 1fr}.print-modal-card{padding:15px}}
 
 /* =========================================================
@@ -2896,6 +2902,7 @@ body.admin-standalone #adminDashboard .admin-main-content{width:100%!important;m
       <div id="printModalBody"></div>
       <div class="print-modal-actions">
         <button class="admin-btn secondary" onclick="openPrintDocument()">Open Document</button>
+        <button class="admin-btn" onclick="preparePrintReadyDocument(this)">Prepare Print-Ready PDF</button>
         <button class="admin-btn" onclick="markPrintingFromAssistant(this)">Mark as Printing</button>
       </div>
     </div>
@@ -3289,28 +3296,158 @@ async function loadAdminDashboard(){
     }
 
     function openPrintAssistant(order){
-      // The print assistant must sit above the Orders drawer/overlay on mobile and desktop.
       closeAdminModule();
       window.currentPrintOrder=order;
       $('printModalTitle').textContent='Print Order '+(order.OrderID||'');
+      const pages=Math.max(1,Number(order.Pages||1));
+      const copies=Math.max(1,Number(order.Copies||1));
+      const defaultRange='1-'+pages;
+      const isBooklet=String(order.Format||'').toLowerCase()==='booklet';
+      const deliveryNotes=order.DeliveryNotes||order.DeliveryNote||order.Notes||order.DeliveryInstructions||'';
       $('printModalBody').innerHTML=
         '<div class="admin-order-grid">'+
-          adminDetail('Document',order.FileName)+adminDetail('Color',order.Color)+
-          adminDetail('Content',order.ContentType)+adminDetail('Pages',Number(order.Pages||0))+
-          adminDetail('Copies',Number(order.Copies||1))+adminDetail('Format',order.Format)+
-          adminDetail('Sides',order.Sides)+adminDetail('Paper Size',order.PaperSize)+
-          adminDetail('Binding',order.Binding)+
-        '</div>'+
-        '<div class="admin-print-box"><strong>PRINTER CHECKLIST</strong>'+ 
-          '<div class="admin-print-line"><span>Color mode</span><b>'+escapeHtml(order.Color||'-')+'</b></div>'+ 
-          '<div class="admin-print-line"><span>Copies</span><b>'+Number(order.Copies||1)+'</b></div>'+ 
-          '<div class="admin-print-line"><span>Paper</span><b>'+escapeHtml(order.PaperSize||'-')+'</b></div>'+ 
-          '<div class="admin-print-line"><span>Sides</span><b>'+escapeHtml(order.Sides||'-')+'</b></div>'+ 
-          '<div class="admin-print-line"><span>Format</span><b>'+escapeHtml(order.Format||'-')+'</b></div>'+ 
-          '<div class="admin-print-line"><span>Binding</span><b>'+escapeHtml(order.Binding||'-')+'</b></div>'+ 
+          adminDetail('Document',order.FileName)+adminDetail('Customer',order.StudentName||'-')+
+          adminDetail('Color',order.Color)+adminDetail('Content',order.ContentType)+
+          adminDetail('Pages',pages)+adminDetail('Copies',copies)+adminDetail('Format',order.Format)+
+          adminDetail('Sides',order.Sides)+adminDetail('Paper Size',order.PaperSize)+adminDetail('Binding',order.Binding)+
+          adminDetail('Fulfillment',order.Fulfillment)+adminDetail('Location',order.Location||'-')+
         '</div>'+ 
-        '<div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.5">The website stores the customer\'s exact print choices and prepares this checklist. A normal browser cannot silently force the local printer driver\'s color, duplex, paper, booklet, and copy settings. Use the checklist when the system printer dialog opens.</div>';
+        '<div class="print-assistant-settings">'+
+          '<label class="admin-field"><span>PAGE RANGE</span><input id="printPageRange" value="'+escapeAttr(defaultRange)+'" placeholder="Example: 1-8,10,12-14"></label>'+ 
+          '<label class="admin-field"><span>COLOR MODE</span><select id="printColorMode"><option value="color" '+(String(order.Color||'').toLowerCase().includes('black')?'':'selected')+'>Color</option><option value="bw" '+(String(order.Color||'').toLowerCase().includes('black')?'selected':'')+'>Black & White</option></select></label>'+ 
+          '<label class="admin-field"><span>LAYOUT</span><select id="printLayout" onchange="updatePrintAssistantPreview()"><option value="normal">Normal</option><option value="manual-duplex">Back-to-back — Manual</option><option value="booklet" '+(isBooklet?'selected':'')+'>Booklet — A4 Landscape</option></select></label>'+ 
+          '<label class="admin-field"><span>ORIENTATION</span><select id="printOrientation"><option value="portrait">Portrait</option><option value="landscape" '+(isBooklet?'selected':'')+'>Landscape</option></select></label>'+ 
+          '<label class="admin-field"><span>PAPER</span><select id="printPaper"><option value="A4" '+(String(order.PaperSize||'A4').toUpperCase()==='A4'?'selected':'')+'>A4</option><option value="Letter">Letter</option></select></label>'+ 
+          '<label class="admin-field"><span>COPIES</span><input id="printCopies" type="number" min="1" value="'+copies+'"></label>'+ 
+          '<label class="admin-field full"><span>BINDING</span><select id="printBinding"><option value="left" '+(String(order.Binding||'').toLowerCase().includes('right')?'':'selected')+'>Left</option><option value="right" '+(String(order.Binding||'').toLowerCase().includes('right')?'selected':'')+'>Right</option></select></label>'+ 
+        '</div>'+ 
+        '<div class="print-assistant-preview" id="printAssistantPreview"></div>'+ 
+        '<div id="manualDuplexButtons" style="display:none;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#f8fbf9"><strong style="display:block;margin-bottom:6px">MANUAL BACK-TO-BACK</strong><div style="font-size:9px;color:var(--muted);line-height:1.45;margin-bottom:8px">Print the front side first. Manually flip/reinsert the printed stack, then print the back side.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="admin-btn" onclick="prepareManualDuplexSide(this,\'front\')">🖨 Print Front</button><button class="admin-btn" onclick="prepareManualDuplexSide(this,\'back\')">🖨 Print Back</button></div></div>'+ 
+        '<div class="print-assistant-note">PM PRINT prepares a temporary print-ready PDF from the selected pages and never changes the original customer file. For Manual Back-to-back, print the Front PDF first, manually flip/reinsert the stack, then print the Back PDF. The back side is prepared in reverse page order for manual duplex feeding. Color/Black & White is recorded for the print job; Chrome/Windows may still require the final printer color setting in Print Preview.</div>'+ 
+        (deliveryNotes?'<div class="admin-print-box"><strong>DELIVERY NOTES</strong><div style="font-size:10px;line-height:1.5;margin-top:5px">'+escapeHtml(deliveryNotes)+'</div></div>':'');
       $('printModal').classList.add('show');
+      updatePrintAssistantPreview();
+    }
+
+    function parsePrintPageRange(value,max){
+      const set=new Set();
+      String(value||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(part=>{
+        const m=part.match(/^(\d+)\s*-\s*(\d+)$/);
+        if(m){let a=Number(m[1]),b=Number(m[2]);if(a>b)[a,b]=[b,a];for(let i=a;i<=b;i++)if(i>=1&&i<=max)set.add(i);}
+        else {const n=Number(part);if(Number.isInteger(n)&&n>=1&&n<=max)set.add(n);}
+      });
+      return [...set].sort((a,b)=>a-b);
+    }
+
+    function bookletOrder(pageNumbers){
+      const pages=pageNumbers.slice();
+      while(pages.length%4)pages.push(null);
+      const out=[];
+      for(let i=0;i<pages.length;i+=4){
+        const a=pages[i],b=pages[i+1],c=pages[i+2],d=pages[i+3];
+        out.push([d,a],[b,c]);
+      }
+      return out;
+    }
+
+    function updatePrintAssistantPreview(){
+      const o=window.currentPrintOrder;if(!o)return;
+      const total=Math.max(1,Number(o.Pages||1));
+      const selected=parsePrintPageRange($('printPageRange')?.value||'',total);
+      const layout=$('printLayout')?.value||'normal';
+      const mode=$('printColorMode')?.value==='bw'?'Black & White':'Color';
+      const copies=Math.max(1,Number($('printCopies')?.value||1));
+      const preview=$('printAssistantPreview');if(!preview)return;
+      if(!selected.length){preview.innerHTML='<strong>No valid pages selected</strong>Enter a page range between 1 and '+total+'.';return;}
+      if(layout==='booklet'){
+        const sheets=bookletOrder(selected),shown=sheets.slice(0,8).map((pair,i)=>'Sheet '+(i+1)+': '+(pair[0]||'Blank')+' | '+(pair[1]||'Blank')).join('<br>');
+        preview.innerHTML='<strong>BOOKLET PREVIEW</strong>'+selected.length+' selected page(s) → '+sheets.length+' A4 landscape side(s), '+mode+', '+copies+' copy/copies.<br>'+shown+(sheets.length>8?'<br>…':'');
+      }else if(layout==='manual-duplex'){
+        const front=selected.filter(n=>n%2===1),back=selected.filter(n=>n%2===0).reverse();
+        preview.innerHTML='<strong>MANUAL BACK-TO-BACK PREVIEW</strong>'+selected.length+' selected page(s) → '+Math.ceil(selected.length/2)+' sheet(s), '+mode+', '+copies+' copy/copies.<br>Front: '+(front.length?front.join(', '):'None')+'<br>Back: '+(back.length?back.join(', '):'None')+'<br><span style="color:var(--muted)">Print Front first, manually flip/reinsert the printed stack, then Print Back.</span>';
+      }else{
+        preview.innerHTML='<strong>PRINT PREVIEW</strong>'+selected.length+' selected page(s), '+mode+', A4 '+(($('printOrientation')?.value||'portrait'))+', '+copies+' copy/copies.';
+      }
+    }
+
+    async function loadPdfLib(){
+      if(window.PDFLib)return window.PDFLib;
+      if(window.__pmPdfLibPromise)return window.__pmPdfLibPromise;
+      window.__pmPdfLibPromise=new Promise((resolve,reject)=>{
+        const script=document.createElement('script');
+        script.src='https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+        script.onload=()=>window.PDFLib?resolve(window.PDFLib):reject(new Error('PDF library did not load.'));
+        script.onerror=()=>reject(new Error('Could not load the PDF preparation library. Check your internet connection.'));
+        document.head.appendChild(script);
+      });
+      return window.__pmPdfLibPromise;
+    }
+
+    async function preparePrintReadyDocument(button){
+      const o=window.currentPrintOrder;
+      if(!o||!o.FileLink){adminShowToast('No document is attached to this order.');return;}
+      if(button&&adminButtonBusy(button,'Preparing…'))return;
+      try{
+        const total=Math.max(1,Number(o.Pages||1));
+        const selected=parsePrintPageRange($('printPageRange')?.value||'',total);
+        if(!selected.length)throw new Error('Enter at least one valid page number or range.');
+        const layout=$('printLayout')?.value||'normal';
+        const paper=$('printPaper')?.value||'A4';
+        const orientation=$('printOrientation')?.value||'portrait';
+        const lib=await loadPdfLib();
+        const response=await fetch(o.FileLink,{credentials:'omit'});
+        if(!response.ok)throw new Error('Could not download the customer PDF for preparation (HTTP '+response.status+').');
+        const source=await response.arrayBuffer();
+        const src=await lib.PDFDocument.load(source,{ignoreEncryption:false});
+        const out=await lib.PDFDocument.create();
+        if(layout==='booklet'){
+          const imposed=bookletOrder(selected);
+          const size=paper==='A4'?[841.89,595.28]:[792,612];
+          for(const pair of imposed){
+            const page=out.addPage(size);
+            const [pw,ph]=size;
+            for(let slot=0;slot<2;slot++){
+              const num=pair[slot];if(!num)continue;
+              const [embedded]=await out.embedPdf(src,[num-1]);
+              const scale=Math.min((pw/2-18)/embedded.width,(ph-18)/embedded.height);
+              const w=embedded.width*scale,h=embedded.height*scale;
+              const x=slot===0?9+((pw/2-18)-w)/2:pw/2+9+((pw/2-18)-w)/2;
+              const y=(ph-h)/2;
+              page.drawPage(embedded,{x,y,width:w,height:h});
+            }
+          }
+        }else if(layout==='manual-duplex'){
+          const front=selected.filter(n=>n%2===1);
+          const back=selected.filter(n=>n%2===0).reverse();
+          const side=String(button?.dataset?.duplexSide||'front');
+          const chosen=side==='back'?back:front;
+          if(!chosen.length)throw new Error(side==='back'?'No back-side pages are selected.':'No front-side pages are selected.');
+          const copied=await out.copyPages(src,chosen.map(n=>n-1));
+          copied.forEach(p=>out.addPage(p));
+        }else{
+          const copied=await out.copyPages(src,selected.map(n=>n-1));
+          copied.forEach(p=>out.addPage(p));
+        }
+        const bytes=await out.save({useObjectStreams:false});
+        const blob=new Blob([bytes],{type:'application/pdf'});
+        const url=URL.createObjectURL(blob);
+        const win=window.open(url,'_blank');
+        if(!win)throw new Error('The browser blocked the print-ready PDF window. Allow pop-ups for this admin page.');
+        const mode=$('printColorMode')?.value==='bw'?'Black & White':'Color';
+        const side=button?.dataset?.duplexSide;
+        setTimeout(()=>{try{win.document.title='PM PRINT '+o.OrderID+' • '+mode+' • '+(layout==='booklet'?'Booklet':(layout==='manual-duplex'?(side==='back'?'Back':'Front'):'Print'))}catch(e){}},500);
+        adminShowToast(layout==='manual-duplex'?(side==='back'?'Back-side PDF prepared.':'Front-side PDF prepared.'):'Print-ready PDF prepared. Use Chrome Print Preview to choose the printer and final color/duplex settings.');
+      }catch(e){adminShowToast(e.message||'Could not prepare the print-ready PDF.');}
+      finally{if(button)adminButtonDone(button);}
+    }
+
+    async function prepareManualDuplexSide(button,side){
+      if($('printLayout') && $('printLayout').value!=='manual-duplex'){
+        $('printLayout').value='manual-duplex';
+        updatePrintAssistantPreview();
+      }
+      if(button)button.dataset.duplexSide=side;
+      await preparePrintReadyDocument(button);
     }
 
     function closePrintAssistant(){ $('printModal').classList.remove('show'); }
