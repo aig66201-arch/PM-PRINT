@@ -2747,6 +2747,24 @@
 
 
 </style>
+
+<style id="admin-dynamic-view-styles">
+.admin-dynamic-shell{width:100%;margin:0 auto;}
+.admin-main-content{width:100%;min-height:calc(100dvh - 105px);padding:0 0 28px;}
+.admin-main-welcome{max-width:760px;margin:30px auto;padding:42px 24px;text-align:center;background:#fff;border:2px solid #c8d9ec;border-radius:14px;box-shadow:5px 5px 0 rgba(8,45,104,.08)}
+.admin-main-welcome-icon{width:64px;height:64px;margin:0 auto 14px;display:grid;place-items:center;border-radius:14px;background:#e5f0ff;color:#082d68;font-size:30px;font-weight:900}
+.admin-main-welcome h2{margin:0;color:#082d68;font-size:20px}.admin-main-welcome p{margin:8px 0 0;color:#5c6f86;font-size:12px;line-height:1.6}
+.admin-main-content .admin-module-drawer{display:none!important;position:static!important;inset:auto!important;width:100%!important;height:auto!important;max-height:none!important;min-height:0!important;transform:none!important;visibility:visible!important;pointer-events:auto!important;background:transparent!important;box-shadow:none!important;transition:none!important;overflow:visible!important}
+.admin-main-content .admin-module-drawer.open{display:block!important}
+.admin-main-content .admin-module-head{position:sticky;top:0;z-index:20;border:2px solid #c8d9ec;border-radius:12px;background:#eaf3ff;padding:14px 16px;box-shadow:0 3px 12px rgba(8,45,104,.08)}
+.admin-main-content .admin-module-head button{width:auto;height:34px;padding:0 12px;border-radius:8px;font-size:12px;color:#082d68;background:#fff;border:2px solid #9bbdea;font-weight:800}
+.admin-main-content .admin-module-body{padding:14px 0 0;overflow:visible}
+.admin-main-content .admin-module-body>.admin-card{border:2px solid #d5e1ef;box-shadow:3px 3px 0 rgba(8,45,104,.05)}
+.admin-main-content .admin-module-overlay,.admin-main-content .admin-module-drawer .admin-module-overlay{display:none!important}
+.admin-main-content .customer-voucher-drawer{position:relative!important;inset:auto!important;transform:none!important;display:none!important;width:100%!important;height:auto!important;max-height:none!important;box-shadow:none!important}
+.admin-module-dynamic-active .admin-module-menu{display:none!important}
+@media(max-width:600px){.admin-main-content{min-height:calc(100dvh - 88px);padding-bottom:20px}.admin-main-welcome{margin:18px 0;padding:32px 18px}.admin-main-content .admin-module-head{top:6px}.admin-main-content .admin-module-body{padding-top:10px}}
+</style>
 </head>
 <body class="pm-print-page admin-standalone">
 <section class="admin-page" id="adminPage" style="display:block">
@@ -2793,6 +2811,15 @@
         <div class="admin-menu-footer"><button type="button" onclick="adminLogout()">Log Out</button><button type="button" class="secondary" onclick="window.location.href='/pmprint.html'">Back to Printing Service</button></div>
       </aside>
       <div class="admin-top" style="display:none"><div><h1>Admin Dashboard</h1><small>Choose an admin tool below. Each tool opens in its own panel.</small></div><button class="admin-btn secondary" style="width:auto;margin:0" onclick="adminLogout()">Logout</button></div>
+      <div class="admin-dynamic-shell">
+        <main class="admin-main-content" id="adminMainContent">
+          <section class="admin-main-welcome" id="adminMainWelcome">
+            <div class="admin-main-welcome-icon">☰</div>
+            <h2>PM PRINT Administration</h2>
+            <p>Select a section from the hamburger menu to manage PM PRINT.</p>
+          </section>
+        </main>
+      </div>
       <div class="admin-module-menu">
         <button onclick="openAdminModule('orders')"><span>&#128424;</span><b>Printing Orders</b><small>Filter, inspect and update orders</small></button>
         <button onclick="openAdminModule('service')"><span>&#9889;</span><b>Printing Service</b><small>Turn ordering on or off</small></button>
@@ -2923,6 +2950,7 @@ window.adminSecret='';
     }
 
 async function loadAdminDashboard(){
+      initializeAdminDynamicViews();
       try{
         const data=await adminCall('getAdminDashboard',{});
         updateAdminService(data.printingAvailable);
@@ -2954,8 +2982,32 @@ async function loadAdminDashboard(){
       openAdminModule(name);
     }
 
-    function openAdminModule(name){ document.querySelectorAll('.admin-module-drawer').forEach(el=>el.classList.remove('open')); const el=$('adminModule_'+name); if(!el)return; $('adminModuleOverlay').classList.add('show'); el.classList.add('open'); if(name==='orders')loadAdminOrders(); if(name==='notifications')loadAdminNotificationCustomers(); }
-    function closeAdminModule(){ $('adminModuleOverlay')?.classList.remove('show'); document.querySelectorAll('.admin-module-drawer').forEach(el=>el.classList.remove('open')); }
+    function initializeAdminDynamicViews(){
+      const main=$('adminMainContent');
+      if(!main||main.dataset.ready==='1')return;
+      document.querySelectorAll('#adminDashboard > .admin-module-drawer').forEach(el=>main.appendChild(el));
+      main.dataset.ready='1';
+      document.querySelectorAll('#adminDashboard > .admin-module-menu').forEach(el=>el.style.display='none');
+      const overlay=$('adminModuleOverlay'); if(overlay)overlay.remove();
+      document.querySelectorAll('#adminMainContent .admin-module-head button').forEach(btn=>{btn.innerHTML='← Back';btn.setAttribute('aria-label','Back to admin menu');});
+    }
+    function openAdminModule(name){
+      initializeAdminDynamicViews();
+      document.querySelectorAll('#adminMainContent .admin-module-drawer').forEach(el=>el.classList.remove('open'));
+      const welcome=$('adminMainWelcome'); if(welcome)welcome.style.display='none';
+      const el=$('adminModule_'+name);
+      if(!el)return;
+      el.classList.add('open');
+      window.scrollTo({top:0,behavior:'smooth'});
+      if(name==='orders')loadAdminOrders();
+      if(name==='notifications')loadAdminNotificationCustomers();
+    }
+    function closeAdminModule(){
+      initializeAdminDynamicViews();
+      document.querySelectorAll('#adminMainContent .admin-module-drawer').forEach(el=>el.classList.remove('open'));
+      const welcome=$('adminMainWelcome'); if(welcome)welcome.style.display='block';
+      window.scrollTo({top:0,behavior:'smooth'});
+    }
     function adminFilterChanged(select){ const value=select?.value||''; const box=$('adminOrders'); if(box)box.innerHTML='<div style="font-size:11px;color:var(--muted);padding:16px;text-align:center">Loading '+escapeHtml(value||'active orders')+'…</div>'; loadAdminOrders(); }
 
     function updateAdminService(on){
