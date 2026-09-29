@@ -119,11 +119,7 @@ async function ensurePmSchema(env){
     ['file_hash',"TEXT DEFAULT ''"],
     ['subtotal','REAL NOT NULL DEFAULT 0'],
     ['centavo_discount','REAL NOT NULL DEFAULT 0'],
-    ['final_total','REAL NOT NULL DEFAULT 0'],
-    ['agent_previous_status','TEXT DEFAULT NULL'],
-    ['agent_claimed_at','TEXT DEFAULT NULL'],
-    ['agent_completed_at','TEXT DEFAULT NULL'],
-    ['agent_failure_reason','TEXT DEFAULT NULL']
+    ['final_total','REAL NOT NULL DEFAULT 0']
   ];
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, order_id TEXT, type TEXT NOT NULL DEFAULT 'printing', title TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL, read_at TEXT, device_id TEXT DEFAULT '', customer_id TEXT, category TEXT NOT NULL DEFAULT 'printing')").run();
   for(const [name,type] of [['customer_id','TEXT'],['category',"TEXT NOT NULL DEFAULT 'printing'"]]) await ensureColumn('notifications',name,type);
@@ -491,85 +487,60 @@ async function handle(request, env){
   try{await ensurePmSchema(env);}catch(e){return err(e.message||'PM PRINT database schema is unavailable.',503);}
   const url=new URL(request.url),origin=url.origin,apiPrefix='/api/pmprint';
 
-  // ============================================================
-  // PM PRINT TERMUX AGENT API
-  // Auth: Authorization: Bearer <PM_PRINT_AGENT_KEY>
-  // The agent uses the existing PM PRINT order ID (PM-XXXX).
-  // ============================================================
-  const agentMatch=url.pathname.match(new RegExp('^'+apiPrefix.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\$&')+'/agent/(claim|file|complete|fail)/([^/]+)$'));
-  const agentKey=clean(env.PM_PRINT_AGENT_KEY||'');
-  const authHeader=request.headers.get('authorization')||'';
-  const suppliedAgentKey=authHeader.toLowerCase().startsWith('bearer ')?clean(authHeader.slice(7)):'';
-  const requireAgent=async()=>{
-    if(!agentKey)throw new Error('PM PRINT Agent Key is not configured.');
-    if(!suppliedAgentKey)throw new Error('PM PRINT Agent authentication is required.');
-    const a=await sha256(agentKey),b=await sha256(suppliedAgentKey);
-    if(a!==b)throw new Error('Invalid PM PRINT Agent Key.');
+  // Dedicated PM PRINT Termux bridge. This uses a separate Cloudflare secret
+  // so the Android/Termux printer does not need to store an administrator
+  // browser session cookie. Set PMPRINT_TERMUX_TOKEN as a Worker secret.
+  const termuxToken=async()=>{
+    const configured=String(env.PMPRINT_TERMUX_TOKEN||'');
+    if(!configured)return false;
+    const header=String(request.headers.get('Authorization')||'');
+    const supplied=header.startsWith('Bearer ')?header.slice(7):'';
+    if(!supplied||supplied.length!==configured.length)return false;
+    const a=new TextEncoder().encode(supplied),b=new TextEncoder().encode(configured);
+    let diff=0;for(let i=0;i<a.length;i++)diff|=a[i]^b[i];
+    return diff===0;
   };
-  if(agentMatch){
+  if(url.pathname===apiPrefix+'/termux/file'){
     try{
-      await requireAgent();
-      const agentAction=agentMatch[1],orderId=decodeURIComponent(agentMatch[2]).trim().toUpperCase();
-      if(!/^PM-[A-Z0-9]+$/.test(orderId))return err('Invalid PM PRINT order number.',400);
-      const order=await env.DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first();
-      if(!order)return err('Order ID was not found.',404);
-
-      if(agentAction==='claim'){
-        if(request.method!=='POST')return err('POST is required.',405);
-        if(!order.r2_key)return err('This order has no attachment.',400);
-        if(!String(order.r2_key).startsWith('pmprint/orders/'))return err('Invalid PM PRINT attachment.',400);
-        // Pending and Accepted are both printable. Preserve which state the
-        // order had so a failed agent print can return it to that state.
-        if(!['Pending','Accepted'].includes(clean(order.status))){
-          if(order.status==='Printing')return err('This order is already being printed.',409);
-          if(order.status==='Completed')return err('This order has already been completed.',409);
-          return err(`This order cannot be printed while its status is ${order.status}.`,409);
-        }
-        const stamp=now();
-        const result=await env.DB.prepare(`UPDATE orders SET status='Printing',status_reason='',agent_previous_status=?,agent_claimed_at=?,agent_completed_at=NULL,agent_failure_reason=NULL,updated_at=? WHERE id=? AND status IN ('Pending','Accepted')`).bind(order.status,stamp,stamp,orderId).run();
-        if(!(result.meta.changes||0))return err('The order changed before it could be claimed. Please try again.',409);
-        await createOrderNotification(env,orderId,order.device_id||'', 'Printing','',order.ready_pickup_location||'',order.customer_id||null);
-        return json({success:true,orderId,fileName:order.file_name||'document',status:'Printing',previousStatus:order.status,printSettings:{contentType:order.content_type||'',color:order.print_color||'',sides:order.print_side||'',format:order.format||'',paperSize:order.paper_size||'',copies:num(order.copies,1),binding:order.binding||'',pages:num(order.pages),pageSelection:order.page_selection||'',sheets:num(order.sheets),printedSides:num(order.printed_sides)},attachment:{available:true,downloadPath:`${apiPrefix}/agent/file/${encodeURIComponent(orderId)}`}});
-      }
-
-      if(agentAction==='file'){
-        if(request.method!=='GET')return err('GET is required.',405);
-        if(order.status!=='Printing')return err('This order is not currently claimed for printing.',409);
-        if(!order.r2_key)return err('This order has no attachment.',404);
-        if(!String(order.r2_key).startsWith('pmprint/orders/'))return err('Invalid PM PRINT attachment.',400);
-        const obj=await env.PRINT_FILES.get(order.r2_key);
-        if(!obj)return err('Attachment was not found in PM PRINT storage.',404);
-        const h=new Headers();obj.writeHttpMetadata(h);
-        h.set('content-disposition',`attachment; filename="${String(order.file_name||'document').replace(/["\\r\\n]/g,'')}.replace?"`);
-        // Replace the generated filename safely without changing the stored file.
-        h.set('content-disposition',`attachment; filename="${String(order.file_name||'document').replace(/["\\r\\n]/g,'_')}"`);
-        h.set('cache-control','no-store');
-        return new Response(obj.body,{status:200,headers:h});
-      }
-
-      if(agentAction==='complete'){
-        if(request.method!=='POST')return err('POST is required.',405);
-        if(order.status!=='Printing')return err(`Only a Printing order can be completed. Current status: ${order.status}.`,409);
-        const stamp=now();
-        const result=await env.DB.prepare(`UPDATE orders SET status='Completed',status_reason='',agent_completed_at=?,agent_failure_reason=NULL,updated_at=? WHERE id=? AND status='Printing'`).bind(stamp,stamp,orderId).run();
-        if(!(result.meta.changes||0))return err('The order could not be completed because its status changed.',409);
-        await createOrderNotification(env,orderId,order.device_id||'','Completed','',order.ready_pickup_location||'',order.customer_id||null);
-        return json({success:true,orderId,status:'Completed'});
-      }
-
-      if(agentAction==='fail'){
-        if(request.method!=='POST')return err('POST is required.',405);
-        if(order.status!=='Printing')return err(`Only a Printing order can be failed. Current status: ${order.status}.`,409);
-        let body={};try{body=await request.json()}catch(_){body={};}
-        const reason=clean(body.reason||'Printing failed.').slice(0,500);
-        const previous=['Pending','Accepted'].includes(clean(order.agent_previous_status))?clean(order.agent_previous_status):'Accepted';
-        const stamp=now();
-        const result=await env.DB.prepare(`UPDATE orders SET status=?,status_reason=?,agent_failure_reason=?,agent_completed_at=NULL,updated_at=? WHERE id=? AND status='Printing'`).bind(previous,reason,reason,stamp,orderId).run();
-        if(!(result.meta.changes||0))return err('The order could not be returned from Printing because its status changed.',409);
-        await createOrderNotification(env,orderId,order.device_id||'',previous,reason,order.ready_pickup_location||'',order.customer_id||null);
-        return json({success:true,orderId,status:previous,reason,temporaryFileMayBeRetained:true});
-      }
+      if(!(await termuxToken()))return err('Termux authorization required.',401);
+      const oid=clean(url.searchParams.get('orderId')).toUpperCase();
+      if(!oid)return err('Order ID is required.',400);
+      const r=await env.DB.prepare('SELECT r2_key,file_name FROM orders WHERE id=?').bind(oid).first();
+      if(!r?.r2_key)return err('File not found.',404);
+      if(!String(r.r2_key).startsWith('pmprint/orders/'))return err('Invalid PM PRINT file.',400);
+      const obj=await env.PRINT_FILES.get(r.r2_key);if(!obj)return err('File not found in R2.',404);
+      const h=new Headers();obj.writeHttpMetadata(h);h.set('content-disposition',`attachment; filename="${String(r.file_name||'document').replace(/["\r\n]/g,'')}"`);h.set('cache-control','private, no-store');
+      return new Response(obj.body,{headers:h});
     }catch(e){return err(e.message||String(e),401);}
+  }
+  if(url.pathname===apiPrefix+'/termux/orders'){
+    if(!(await termuxToken()))return err('Termux authorization required.',401);
+    try{
+      const status=clean(url.searchParams.get('status'));
+      const includeAll=String(url.searchParams.get('includeAll')||'')==='1';
+      const limit=Math.min(200,Math.max(1,num(url.searchParams.get('limit'),200)));
+      if(includeAll){
+        let sql='SELECT * FROM orders';const args=[];
+        if(status){sql+=' WHERE status=?';args.push(status);}
+        sql+=' ORDER BY created_at ASC LIMIT ?';args.push(limit);
+        const {results}=await env.DB.prepare(sql).bind(...args).all();
+        return json({success:true,orders:(results||[]).map(r=>rowOrder(r,origin,apiPrefix))});
+      }
+      return json({success:true,orders:await adminOrders(env,status,origin,limit,apiPrefix)});
+    }catch(e){return err(e.message||String(e));}
+  }
+  if(url.pathname===apiPrefix+'/termux/status'){
+    if(!(await termuxToken()))return err('Termux authorization required.',401);
+    try{
+      if(request.method!=='POST')return err('POST required.',405);
+      const data=await request.json();
+      const oid=clean(data.orderId).toUpperCase(),status=clean(data.status),reason=data.reason||'';
+      if(!oid)return err('Order ID is required.',400);
+      const allowed=['Pending','Accepted','Declined','Printing','Completed','In transit','Ready to Pickup','Delivered'];
+      if(!allowed.includes(status))return err('Invalid PM PRINT status.',400);
+      const result=await updateOrder(env,[oid],status,reason,{username:'Termux Printer'});
+      return json(result);
+    }catch(e){return err(e.message||String(e));}
   }
 
   if(url.pathname.startsWith(apiPrefix+'/admin/file')){
