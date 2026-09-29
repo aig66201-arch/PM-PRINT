@@ -531,14 +531,14 @@ async function handle(request, env){
       return json({success:true,item:{id:itemId,fileName:safe,fileSize:file.size,summary}});
     }
     if(action==='getCart'){
-      const c=await requireCustomer(env);const items=await getCartItems(env,c.id);return json({success:true,items});
+      const c=await requireCustomer(env,request);const items=await getCartItems(env,c.id);return json({success:true,items});
     }
     if(action==='deleteCartItem'){
-      const c=await requireCustomer(env);const itemId=clean(data.itemId);const row=await env.DB.prepare('SELECT id,r2_key FROM pm_cart_items WHERE id=? AND customer_id=?').bind(itemId,c.id).first();if(!row)throw new Error('Cart item not found.');await env.DB.prepare('DELETE FROM pm_cart_items WHERE id=? AND customer_id=?').bind(itemId,c.id).run();if(row.r2_key){try{await env.PRINT_FILES.delete(row.r2_key)}catch(_){}}return json({success:true,deleted:itemId});
+      const c=await requireCustomer(env,request);const itemId=clean(data.itemId);const row=await env.DB.prepare('SELECT id,r2_key FROM pm_cart_items WHERE id=? AND customer_id=?').bind(itemId,c.id).first();if(!row)throw new Error('Cart item not found.');await env.DB.prepare('DELETE FROM pm_cart_items WHERE id=? AND customer_id=?').bind(itemId,c.id).run();if(row.r2_key){try{await env.PRINT_FILES.delete(row.r2_key)}catch(_){}}return json({success:true,deleted:itemId});
     }
     if(action==='checkoutCart'){
       if(!(await accountManagementOn(env)))throw new Error('Cart checkout is available only when Account Management is turned on.');
-      const c=await requireCustomer(env);const ids=[...new Set((Array.isArray(data.itemIds)?data.itemIds:[]).map(x=>clean(x)).filter(Boolean))];if(!ids.length)throw new Error('Select at least one cart item.');
+      const c=await requireCustomer(env,request);const ids=[...new Set((Array.isArray(data.itemIds)?data.itemIds:[]).map(x=>clean(x)).filter(Boolean))];if(!ids.length)throw new Error('Select at least one cart item.');
       const all=await getCartItems(env,c.id);const selected=all.filter(x=>ids.includes(x.id));if(selected.length!==ids.length)throw new Error('One or more selected cart items are no longer available.');if(selected.some(x=>!x.summary))throw new Error('One or more cart items need to be added again.');
       const fulfillment=clean(data.fulfillment||'Pickup');if(!['Pickup','Delivery'].includes(fulfillment))throw new Error('Invalid order method.');let locationId=clean(data.locationId),location='';let deliveryFee=0;
       if(fulfillment==='Delivery'){const loc=locationId?await env.DB.prepare('SELECT * FROM locations WHERE id=? AND active=1').bind(locationId).first():null;if(!loc)throw new Error('Selected delivery location is no longer available.');location=loc.name;deliveryFee=num(loc.fee);}
