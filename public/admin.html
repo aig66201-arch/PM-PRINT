@@ -3006,6 +3006,31 @@ async function loadAdminDashboard(){
       const data={};['text_bw','text_color','text_image_bw','text_image_color','image_bw','image_color','paper_per_sheet'].forEach(k=>data[k]=$('price_'+k).value);
       try{const r=await adminCall('savePricing',data);populateAdminPricing(r.pricing||{});adminShowToast('Printing prices updated.');}catch(e){adminShowToast(e.message||'Could not save pricing.');}finally{adminButtonDone(button);}
     }
+    function populatePmInkPricing(p){
+      if($('pm_ink_black'))$('pm_ink_black').value=p?.blackInkRate??'';
+      if($('pm_ink_color'))$('pm_ink_color').value=p?.colorInkRate??'';
+      if($('pm_ink_min'))$('pm_ink_min').value=p?.minimumInkCharge??'';
+      if($('pm_ink_threshold'))$('pm_ink_threshold').value=p?.coverageThreshold??'';
+    }
+    async function savePmInkPricing(button){
+      if(adminButtonBusy(button,'Saving…'))return;
+      const data={
+        blackInkRate:$('pm_ink_black')?.value||'',
+        colorInkRate:$('pm_ink_color')?.value||'',
+        minimumInkCharge:$('pm_ink_min')?.value||'',
+        coverageThreshold:$('pm_ink_threshold')?.value||''
+      };
+      const message=$('pmInkSettingsMessage');
+      if(message){message.textContent='';message.style.color='var(--muted)';}
+      try{
+        const r=await adminCall('savePmInkPricing',data);
+        window.pmInkPricing=r.pricing||{};
+        populatePmInkPricing(r.pricing||{});
+        if(message){message.textContent='Saved successfully.';message.style.color='#087a40';}
+      }catch(e){
+        if(message){message.textContent=e.message||'Could not save PMPRINT ink pricing.';message.style.color='#a83222';}
+      }finally{adminButtonDone(button);}
+    }
     function renderAdminLocations(locations){
       const box=$('adminLocations');if(!box)return;
       if(!locations.length){box.innerHTML='<div style="font-size:10px;color:var(--muted)">No delivery locations.</div>';return;}
