@@ -4842,15 +4842,20 @@ pmPictureBind();window.addEventListener('resize',()=>{if($('pmProfilePictureModa
 async function pmCommitProfilePicture(){
   const stage=$('pmPictureStage'),msg=$('pmPictureMessage'),img=pmPictureState.img;
   if(!stage||!img||!pmPictureState.file)return;
-  const box=stage.getBoundingClientRect();
-  const guide={x:box.width*.18,y:box.height*.18,w:box.width*.64,h:box.height*.64};
+  const stageRect=stage.getBoundingClientRect();
+  const guide={x:stageRect.width*.18,y:stageRect.height*.18,w:stageRect.width*.64,h:stageRect.height*.64};
   const canvas=document.createElement('canvas');
   const size=720; canvas.width=size; canvas.height=size;
   const ctx=canvas.getContext('2d');
-  const scaleX=img.naturalWidth/box.width, scaleY=img.naturalHeight/box.height;
-  const left=(img.offsetLeft||0)-guide.x, top=(img.offsetTop||0)-guide.y;
-  const sx=Math.max(0,left*scaleX), sy=Math.max(0,top*scaleY);
-  const sw=Math.min(img.naturalWidth,guide.w*scaleX), sh=Math.min(img.naturalHeight,guide.h*scaleY);
+  const imgRect=img.getBoundingClientRect();
+  const imgLeft=imgRect.left-stageRect.left;
+  const imgTop=imgRect.top-stageRect.top;
+  const sx=(guide.x-imgLeft)*(img.naturalWidth/imgRect.width);
+  const sy=(guide.y-imgTop)*(img.naturalHeight/imgRect.height);
+  const sw=guide.w*(img.naturalWidth/imgRect.width);
+  const sh=guide.h*(img.naturalHeight/imgRect.height);
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
   ctx.drawImage(img,sx,sy,sw,sh,0,0,size,size);
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.9));
   if(!blob)return;

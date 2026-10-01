@@ -2293,6 +2293,19 @@
 .admin-order-buttons .print{background:var(--g);color:#fff;border:0}
 .admin-order-buttons .view{background:#eef5f0;color:var(--g);border:1px solid var(--line)}
 .admin-order-buttons .save{background:#087a40;color:#fff;border:0}
+.pm-session-modal{position:fixed;inset:0;background:rgba(0,0,0,.58);display:none;align-items:center;justify-content:center;padding:16px;z-index:1100;isolation:isolate}
+.pm-session-modal.show{display:flex}
+.pm-session-modal-card{width:min(480px,100%);max-height:90vh;overflow:auto;background:#fff;border-radius:20px;padding:18px;box-shadow:0 20px 60px #0004}
+.pm-session-modal-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}
+.pm-session-modal-head h3{margin:0;font-size:18px;color:var(--g2)}
+.pm-session-modal-head small{display:block;color:var(--muted);font-size:9px;line-height:1.45;margin-top:3px}
+.pm-session-modal-close{border:0;background:#edf5ef;color:var(--g);width:34px;height:34px;border-radius:10px;font-size:20px;flex:0 0 auto}
+.pm-session-modal-target{padding:11px 12px;background:#f5faf7;border:1px solid var(--line);border-radius:12px;margin:10px 0 13px;font-size:10px;line-height:1.45}
+.pm-session-modal-target b{display:block;color:var(--g2);font-size:11px;margin-bottom:2px}
+.pm-session-modal-warning{padding:10px 12px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:12px;font-size:9px;line-height:1.45;margin-bottom:12px}
+.pm-session-modal-actions{display:flex;gap:8px;margin-top:14px}
+.pm-session-modal-actions button{flex:1}
+@media(max-width:767px){.pm-session-modal-card{padding:15px}.pm-session-modal-actions{flex-direction:column}}
 .print-modal{position:fixed;inset:0;background:rgba(0,0,0,.58);display:none;align-items:center;justify-content:center;padding:16px;z-index:1000;isolation:isolate}
 .print-modal.show{display:flex}
 .print-modal-card{width:min(520px,100%);max-height:90vh;overflow:auto;background:#fff;border-radius:20px;padding:18px;box-shadow:0 20px 60px #0004}
@@ -2892,6 +2905,23 @@ body.admin-standalone #adminDashboard .admin-main-content{width:100%!important;m
   </section>
 
 
+
+  <div class="pm-session-modal" id="pmSessionLogoutModal" onclick="if(event.target===this)closeSessionLogoutModal()">
+    <div class="pm-session-modal-card" role="dialog" aria-modal="true" aria-labelledby="pmSessionLogoutTitle">
+      <div class="pm-session-modal-head">
+        <div><h3 id="pmSessionLogoutTitle">Log Out Sessions</h3><small id="pmSessionLogoutSubtitle">Force active customer sessions to sign out.</small></div>
+        <button class="pm-session-modal-close" type="button" aria-label="Close" onclick="closeSessionLogoutModal()">×</button>
+      </div>
+      <div class="pm-session-modal-target" id="pmSessionLogoutTarget"></div>
+      <div class="pm-session-modal-warning">The customer will see a full-screen sign-out message and must press <b>Log Out</b> before they can sign in again.</div>
+      <div class="admin-field"><label>LOGOUT MESSAGE</label><textarea id="pmSessionLogoutMessage" maxlength="500" placeholder="Leave blank to use the default message."></textarea></div>
+      <div class="pm-session-modal-actions">
+        <button class="admin-btn secondary" type="button" onclick="closeSessionLogoutModal()">Cancel</button>
+        <button class="admin-btn danger" id="pmSessionLogoutSubmit" type="button" onclick="submitSessionLogout()">Log Out Sessions</button>
+      </div>
+      <div id="pmSessionLogoutResult" class="admin-inline-message" role="status" aria-live="polite"></div>
+    </div>
+  </div>
 
   <div class="print-modal" id="printModal" onclick="if(event.target===this)closePrintAssistant()">
     <div class="print-modal-card">
@@ -3535,8 +3565,42 @@ async function loadAdminDashboard(){
     async function loadAdminNotificationCustomers(){const select=$('adminNotifCustomer');if(!select)return;try{const r=await adminCall('getCustomerAccounts',{search:'',status:'Active'});select.innerHTML=(r.accounts||[]).map(a=>'<option value="'+escapeAttr(a.id)+'">'+escapeHtml(a.name||a.username)+' — '+escapeHtml(a.username||'')+'</option>').join('')||'<option value="">No active customers</option>';}catch(e){select.innerHTML='<option value="">Unable to load customers</option>';const box=$('adminNotificationMessage');if(box){box.textContent=e.message||'Unable to load customers.';box.className='admin-inline-message show error'}}}
     async function pushAdminNotification(button){if(adminButtonBusy(button,'Sending…'))return;const box=$('adminNotificationMessage');if(box){box.textContent='';box.className='admin-inline-message'}const target=$('adminNotifTarget')?.value||'all',customerId=$('adminNotifCustomer')?.value||'',title=$('adminNotifTitle')?.value.trim()||'',message=$('adminNotifMessage')?.value.trim()||'';try{if(!title)throw new Error('Notification title is required.');if(!message)throw new Error('Notification message is required.');if(target==='customer'&&!customerId)throw new Error('Select a customer.');const r=await adminCall('pushNotification',{target,customerId,title,message});if(box){box.textContent='Notification sent successfully to '+Number(r.sent||0)+' customer(s).';box.className='admin-inline-message show success'}$('adminNotifTitle').value='';$('adminNotifMessage').value='';}catch(e){if(box){box.textContent=e.message||'Unable to send notification.';box.className='admin-inline-message show error'}}finally{adminButtonDone(button)}}
     let __acctTimer=0;function debouncedCustomerAccounts(){clearTimeout(__acctTimer);__acctTimer=setTimeout(loadCustomerAccounts,250)}
-    async function forceLogoutCustomer(id){const a=(window.customerAccounts||[]).find(x=>x.id===id);if(!a)return;const defaultMessage='An administrator has signed you out of this PM PRINT account. Please click Log Out, then sign in again to continue.';if(!confirm('Force all active sessions for '+a.name+' to log out?'))return;let message=prompt('Logout message for '+a.name+' (leave blank to use the default message):',defaultMessage);if(message===null)return;message=String(message).trim()||defaultMessage;try{const r=await adminCall('forceLogoutCustomer',{customerId:id,message});adminShowToast('Forced logout for '+Number(r.sessions||0)+' session(s).');}catch(e){adminShowToast(e.message||'Unable to force logout.')}}
-    async function forceLogoutAllCustomers(button){const defaultMessage='An administrator has signed you out of PM PRINT. Please click Log Out, then sign in again to continue.';if(!confirm('Force all active customer sessions to log out?'))return;let message=prompt('Logout message for all active customers (leave blank to use the default message):',defaultMessage);if(message===null)return;message=String(message).trim()||defaultMessage;if(adminButtonBusy(button,'Logging out…'))return;const box=$('adminForceLogoutMessage');if(box){box.textContent='';box.className='admin-inline-message'}try{const r=await adminCall('forceLogoutAllCustomers',{message});if(box){box.textContent='Forced logout for '+Number(r.sessions||0)+' session(s).';box.className='admin-inline-message show success'}}catch(e){if(box){box.textContent=e.message||'Unable to force logout.';box.className='admin-inline-message show error'}}finally{adminButtonDone(button)}}
+    window.pmSessionLogoutTarget=null;
+    function openSessionLogoutModal(target){
+      window.pmSessionLogoutTarget=target||null;
+      const modal=$('pmSessionLogoutModal'),title=$('pmSessionLogoutTitle'),sub=$('pmSessionLogoutSubtitle'),targetBox=$('pmSessionLogoutTarget'),message=$('pmSessionLogoutMessage'),result=$('pmSessionLogoutResult'),submit=$('pmSessionLogoutSubmit');
+      if(!modal)return;
+      const isAll=target?.type==='all',name=target?.name||'Customer';
+      title.textContent=isAll?'Log Out All Sessions':'Log Out Sessions';
+      sub.textContent=isAll?'Force all active customer sessions to sign out.':'Force all active sessions for this customer to sign out.';
+      targetBox.innerHTML=isAll?'<b>ALL ACTIVE CUSTOMER SESSIONS</b>This will force every currently active customer session to sign out.':'<b>'+escapeHtml(name)+'</b>'+escapeHtml(target?.username?target.username+' · All active sessions for this customer.':'All active sessions for this customer.');
+      message.value=target?.defaultMessage||'';
+      result.textContent='';result.className='admin-inline-message';
+      submit.disabled=false;submit.textContent=isAll?'Log Out All Sessions':'Log Out Sessions';
+      modal.classList.add('show');
+      setTimeout(()=>message.focus(),50);
+    }
+    function closeSessionLogoutModal(){const modal=$('pmSessionLogoutModal');if(modal)modal.classList.remove('show');window.pmSessionLogoutTarget=null;}
+    async function submitSessionLogout(){
+      const target=window.pmSessionLogoutTarget;if(!target)return;
+      const button=$('pmSessionLogoutSubmit'),result=$('pmSessionLogoutResult');
+      if(adminButtonBusy(button,'Logging out…'))return;
+      const defaultMessage=target.defaultMessage||'An administrator has signed you out of this PM PRINT account. Please click Log Out, then sign in again to continue.';
+      const message=String($('pmSessionLogoutMessage')?.value||'').trim()||defaultMessage;
+      if(result){result.textContent='';result.className='admin-inline-message'}
+      try{
+        const action=target.type==='all'?'forceLogoutAllCustomers':'forceLogoutCustomer';
+        const data=target.type==='all'?{message}:{customerId:target.id,message};
+        const r=await adminCall(action,data);
+        if(result){result.textContent='Forced logout for '+Number(r.sessions||0)+' session(s).';result.className='admin-inline-message show success'}
+        adminShowToast('Forced logout for '+Number(r.sessions||0)+' session(s).');
+        setTimeout(closeSessionLogoutModal,650);
+      }catch(e){
+        if(result){result.textContent=e.message||'Unable to force logout.';result.className='admin-inline-message show error'}
+      }finally{adminButtonDone(button)}
+    }
+    function forceLogoutCustomer(id){const a=(window.customerAccounts||[]).find(x=>x.id===id);if(!a)return;openSessionLogoutModal({type:'customer',id:a.id,name:a.name,username:a.username,defaultMessage:'An administrator has signed you out of this PM PRINT account. Please click Log Out, then sign in again to continue.'});}
+    function forceLogoutAllCustomers(){openSessionLogoutModal({type:'all',defaultMessage:'An administrator has signed you out of PM PRINT. Please click Log Out, then sign in again to continue.'});}
 
     async function loadCustomerAccounts(button){if(button&&adminButtonBusy(button,'Loading…'))return;try{const r=await adminCall('getCustomerAccounts',{search:$('acctSearch')?.value||'',status:$('acctFilter')?.value||''});$('customerAccountSummary').textContent=r.accounts.length+' account(s)';const box=$('customerAccounts');if(!r.accounts.length){box.innerHTML='<div class="admin-locked">No customer accounts found.</div>';return;}box.innerHTML=r.accounts.map(a=>`<div class="admin-order-details" style="padding:10px;margin-bottom:8px"><div class="admin-order-grid"><div class="admin-detail-item"><small>FULL NAME</small><b>${escapeHtml(a.name)}</b></div><div class="admin-detail-item"><small>USERNAME</small><b>${escapeHtml(a.username)}</b></div><div class="admin-detail-item"><small>CONTACT</small><b>${escapeHtml(a.phone||'—')}</b></div><div class="admin-detail-item"><small>STATUS</small><b>${escapeHtml(a.status)}</b></div></div><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px"><button class="admin-btn secondary" style="width:auto;margin:0" onclick="editCustomerAccount('${escapeJs(a.id)}')">Edit</button><button class="admin-btn secondary" style="width:auto;margin:0" onclick="resetCustomerPassword('${escapeJs(a.id)}')">Reset Password</button><button class="admin-btn secondary" style="width:auto;margin:0" onclick="showCustomerActivity('${escapeJs(a.id)}')">Activity</button><button class="admin-btn" style="width:auto;margin:0" onclick="openCustomerVoucherDrawer('${escapeJs(a.id)}')">Voucher</button><button class="admin-btn danger" style="width:auto;margin:0" onclick="forceLogoutCustomer('${escapeJs(a.id)}')">Log Out Sessions</button><button class="admin-btn danger" style="width:auto;margin:0" onclick="deleteCustomerAccount('${escapeJs(a.id)}')">Delete</button></div></div>`).join('');window.customerAccounts=r.accounts;}catch(e){adminShowToast(e.message||'Could not load customer accounts.')}finally{if(button)adminButtonDone(button)}}
     async function createCustomerAccount(button){if(adminButtonBusy(button,'Creating…'))return;const d={name:$('acctName').value.trim(),username:$('acctUsername').value.trim(),password:$('acctPassword').value,phone:$('acctPhone').value.trim(),gender:$('acctGender').value,birthday:$('acctBirthday').value,status:$('acctStatus').value,bio:$('acctBio').value.trim()};try{await adminCall('createCustomerAccount',d);['acctName','acctUsername','acctPassword','acctPhone','acctBirthday','acctBio'].forEach(id=>$(id).value='');$('acctGender').value='';$('acctStatus').value='Active';adminShowToast('Customer account created.');await loadCustomerAccounts();}catch(e){adminShowToast(e.message||'Could not create account.')}finally{adminButtonDone(button)}}
