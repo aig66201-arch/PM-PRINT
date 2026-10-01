@@ -127,8 +127,9 @@ async function ensurePmSchema(env){
   for(const [name,type] of orderColumns) await ensureColumn('orders',name,type);
 
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_customers (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', profile_picture_key TEXT DEFAULT '', bio TEXT DEFAULT '', gender TEXT DEFAULT '', birthday TEXT DEFAULT '', phone TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'Active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)").run();
-  await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_customer_sessions (token_hash TEXT PRIMARY KEY, customer_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, remember INTEGER NOT NULL DEFAULT 0)").run();
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_customer_sessions (token_hash TEXT PRIMARY KEY, customer_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, remember INTEGER NOT NULL DEFAULT 0, force_logout_message TEXT DEFAULT '')").run();
   await ensureColumn('pm_customer_sessions','customer_id',"TEXT NOT NULL DEFAULT ''");
+  await ensureColumn('pm_customer_sessions','force_logout_message',"TEXT DEFAULT ''");
 
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS pm_account_activity (id TEXT PRIMARY KEY, username TEXT NOT NULL DEFAULT '', action TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', ip TEXT DEFAULT '', created_at TEXT NOT NULL)").run();
   await ensureColumn('pm_account_activity','customer_id','TEXT');
@@ -159,10 +160,11 @@ async function requireAdmin(env,req){const token=getCookie(req,env.ADMIN_COOKIE|
 async function log(env,user,action,description){try{await env.DB.prepare('INSERT INTO activity_log(id,username,action,description,timestamp) VALUES(?,?,?,?,?)').bind(id('LOG'),user||'',action,description||'',now()).run();}catch(_){} }
 async function accountPasswordHash(password,salt){let data=new TextEncoder().encode(`${salt}|${password}`);let key=await crypto.subtle.importKey('raw',data,'PBKDF2',false,['deriveBits']);let bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:100000,hash:'SHA-256'},key,256);return [...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 async function accountActivity(env,c,action,description,req){try{await env.DB.prepare('INSERT INTO pm_account_activity(id,customer_id,username,action,description,ip,created_at) VALUES(?,?,?,?,?,?,?)').bind(id('AA'),c?.id||null,c?.username||'',action,description||'',req?.headers.get('CF-Connecting-IP')||'',now()).run();}catch(_){} }
-async function requireCustomer(env,req){const token=getCookie(req,'pmprint_customer');if(!token)throw new Error('Customer login required.');const h=await sha256(token);const row=await env.DB.prepare('SELECT c.* FROM pm_customer_sessions s INNER JOIN pm_customers c ON c.id=s.customer_id WHERE s.token_hash=? AND s.expires_at>?').bind(h,now()).first();if(!row||row.status!=='Active')throw new Error('Your customer session is invalid or your account is inactive.');return row;}
-function publicCustomer(c){return c?{id:c.id,username:c.username,name:c.name,phone:c.phone||'',gender:c.gender||'',birthday:c.birthday||'',bio:c.bio||'',status:c.status,createdAt:c.created_at,updatedAt:c.updated_at}:null;}
+async function requireCustomer(env,req){const token=getCookie(req,'pmprint_customer');if(!token)throw new Error('Customer login required.');const h=await sha256(token);const row=await env.DB.prepare('SELECT c.*,s.force_logout_message,s.token_hash AS session_token_hash FROM pm_customer_sessions s INNER JOIN pm_customers c ON c.id=s.customer_id WHERE s.token_hash=? AND s.expires_at>?').bind(h,now()).first();if(!row||row.status!=='Active')throw new Error('Your customer session is invalid or your account is inactive.');return row;}
+async function getCustomerSessionState(env,req){const token=getCookie(req,'pmprint_customer');if(!token)return {customer:null,forceLogout:false,message:''};const h=await sha256(token);const row=await env.DB.prepare('SELECT s.force_logout_message,c.* FROM pm_customer_sessions s INNER JOIN pm_customers c ON c.id=s.customer_id WHERE s.token_hash=? AND s.expires_at>?').bind(h,now()).first();if(!row||row.status!=='Active')return {customer:null,forceLogout:false,message:''};return {customer:publicCustomer(row),forceLogout:!!clean(row.force_logout_message),message:clean(row.force_logout_message)};}
+function publicCustomer(c){return c?{id:c.id,username:c.username,name:c.name,phone:c.phone||'',gender:c.gender||'',birthday:c.birthday||'',bio:c.bio||'',status:c.status,profilePictureUrl:c.profile_picture_key?'/api/pmprint/getCustomerProfilePicture':'',createdAt:c.created_at,updatedAt:c.updated_at}:null;}
 async function accountManagementOn(env){const s=await getSettings(env);return s.pmprint_account_management==='1'||s.pmprint_account_management==='true';}
-async function customerSessionResponse(env,req,c,remember=false){const token=crypto.randomUUID()+crypto.randomUUID(),th=await sha256(token),days=remember?30:1,exp=new Date(Date.now()+days*86400000).toISOString();await env.DB.prepare('INSERT INTO pm_customer_sessions(token_hash,customer_id,created_at,expires_at,remember) VALUES(?,?,?,?,?)').bind(th,c.id,now(),exp,remember?1:0).run();await accountActivity(env,c,'LOGIN','Customer signed in.',req);return json({success:true,customer:publicCustomer(c),accountManagement:true},200,{'set-cookie':cookie('pmprint_customer',token,{maxAge:remember?days*86400:86400})});}
+async function customerSessionResponse(env,req,c,remember=false){const token=crypto.randomUUID()+crypto.randomUUID(),th=await sha256(token),days=remember?30:1,exp=new Date(Date.now()+days*86400000).toISOString();await env.DB.prepare('INSERT INTO pm_customer_sessions(token_hash,customer_id,created_at,expires_at,remember,force_logout_message) VALUES(?,?,?,?,?,?)').bind(th,c.id,now(),exp,remember?1:0,'').run();await accountActivity(env,c,'LOGIN','Customer signed in.',req);return json({success:true,customer:publicCustomer(c),accountManagement:true},200,{'set-cookie':cookie('pmprint_customer',token,{maxAge:remember?days*86400:86400})});}
 async function adminCustomers(env,search='',status=''){let sql='SELECT id,username,name,phone,gender,birthday,status,created_at,updated_at FROM pm_customers WHERE 1=1';const args=[];if(search){sql+=' AND (name LIKE ? OR username LIKE ? OR phone LIKE ?)';const q=`%${search}%`;args.push(q,q,q)}if(status){sql+=' AND status=?';args.push(status)}sql+=' ORDER BY created_at DESC LIMIT 500';const {results}=await env.DB.prepare(sql).bind(...args).all();return results;}
 
 
@@ -380,6 +382,8 @@ async function handleAdmin(env,req,action,data,origin,apiPrefix='/api'){const us
   if(action==='deleteCustomerAccount'){const cid=clean(data.id),c=await env.DB.prepare('SELECT * FROM pm_customers WHERE id=?').bind(cid).first();if(!c)throw new Error('Customer account not found.');await env.DB.prepare('DELETE FROM pm_customer_vouchers WHERE customer_id=?').bind(cid).run();await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE customer_id=?').bind(cid).run();await env.DB.prepare('DELETE FROM notifications WHERE customer_id=?').bind(cid).run();await env.DB.prepare('UPDATE orders SET customer_id=NULL WHERE customer_id=?').bind(cid).run();await accountActivity(env,c,'ACCOUNT_DELETED','Account deleted by administrator.',req);await env.DB.prepare('DELETE FROM pm_customers WHERE id=?').bind(cid).run();await log(env,user.username,'CUSTOMER_ACCOUNT_DELETED',`Deleted customer account ${c.username}.`);return {success:true};}
   if(action==='resetCustomerPassword'){const cid=clean(data.id),password=String(data.password||'');if(password.length<8)throw new Error('Password must be at least 8 characters.');const c=await env.DB.prepare('SELECT * FROM pm_customers WHERE id=?').bind(cid).first();if(!c)throw new Error('Customer account not found.');const salt=crypto.randomUUID()+crypto.randomUUID(),hash=await accountPasswordHash(password,salt);await env.DB.prepare('UPDATE pm_customers SET password_hash=?,password_salt=?,updated_at=? WHERE id=?').bind(hash,salt,now(),cid).run();await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE customer_id=?').bind(cid).run();await accountActivity(env,c,'PASSWORD_RESET','Password reset by administrator.',req);await log(env,user.username,'CUSTOMER_PASSWORD_RESET',`Reset password for ${c.username}.`);return {success:true};}
   if(action==='getCustomerActivity'){const cid=clean(data.customerId),q=clean(data.search);let sql='SELECT id,customer_id,username,action,description,ip,created_at FROM pm_account_activity WHERE 1=1';const args=[];if(cid){sql+=' AND customer_id=?';args.push(cid)}if(q){sql+=' AND (username LIKE ? OR action LIKE ? OR description LIKE ?)';const x=`%${q}%`;args.push(x,x,x)}sql+=' ORDER BY created_at DESC LIMIT 500';const {results}=await env.DB.prepare(sql).bind(...args).all();return {success:true,activity:results};}
+  if(action==='forceLogoutCustomer'){const cid=clean(data.customerId);if(!cid)throw new Error('Customer account is required.');const c=await env.DB.prepare('SELECT id,username,name,status FROM pm_customers WHERE id=?').bind(cid).first();if(!c)throw new Error('Customer account not found.');const message=clean(data.message)||'An administrator has signed you out of this PM PRINT account. Please click Log Out, then sign in again to continue.';const r=await env.DB.prepare('UPDATE pm_customer_sessions SET force_logout_message=? WHERE customer_id=?').bind(message,cid).run();await accountActivity(env,c,'ADMIN_FORCED_LOGOUT','Administrator forced all active sessions to log out.',req);await log(env,user.username,'CUSTOMER_FORCED_LOGOUT',`Forced logout for ${c.username} (${r.meta.changes||0} session(s)).`);return {success:true,sessions:r.meta.changes||0};}
+  if(action==='forceLogoutAllCustomers'){const message=clean(data.message)||'An administrator has signed you out of PM PRINT. Please click Log Out, then sign in again to continue.';const r=await env.DB.prepare("UPDATE pm_customer_sessions SET force_logout_message=? WHERE customer_id IN (SELECT id FROM pm_customers WHERE status='Active')").bind(message).run();await log(env,user.username,'ALL_CUSTOMERS_FORCED_LOGOUT',`Forced logout for ${r.meta.changes||0} active session(s).`);return {success:true,sessions:r.meta.changes||0};}
   if(action==='pushNotification'){
     const target=clean(data.target||'all').toLowerCase(),title=clean(data.title).slice(0,120),message=clean(data.message).slice(0,1000);
     if(!title)throw new Error('Notification title is required.');
@@ -487,62 +491,6 @@ async function handle(request, env){
   try{await ensurePmSchema(env);}catch(e){return err(e.message||'PM PRINT database schema is unavailable.',503);}
   const url=new URL(request.url),origin=url.origin,apiPrefix='/api/pmprint';
 
-  // Dedicated PM PRINT Termux bridge. This uses a separate Cloudflare secret
-  // so the Android/Termux printer does not need to store an administrator
-  // browser session cookie. Set PMPRINT_TERMUX_TOKEN as a Worker secret.
-  const termuxToken=async()=>{
-    const configured=String(env.PMPRINT_TERMUX_TOKEN||'');
-    if(!configured)return false;
-    const header=String(request.headers.get('Authorization')||'');
-    const supplied=header.startsWith('Bearer ')?header.slice(7):'';
-    if(!supplied||supplied.length!==configured.length)return false;
-    const a=new TextEncoder().encode(supplied),b=new TextEncoder().encode(configured);
-    let diff=0;for(let i=0;i<a.length;i++)diff|=a[i]^b[i];
-    return diff===0;
-  };
-  if(url.pathname===apiPrefix+'/termux/file'){
-    try{
-      if(!(await termuxToken()))return err('Termux authorization required.',401);
-      const oid=clean(url.searchParams.get('orderId')).toUpperCase();
-      if(!oid)return err('Order ID is required.',400);
-      const r=await env.DB.prepare('SELECT r2_key,file_name FROM orders WHERE id=?').bind(oid).first();
-      if(!r?.r2_key)return err('File not found.',404);
-      if(!String(r.r2_key).startsWith('pmprint/orders/'))return err('Invalid PM PRINT file.',400);
-      const obj=await env.PRINT_FILES.get(r.r2_key);if(!obj)return err('File not found in R2.',404);
-      const h=new Headers();obj.writeHttpMetadata(h);h.set('content-disposition',`attachment; filename="${String(r.file_name||'document').replace(/["\r\n]/g,'')}"`);h.set('cache-control','private, no-store');
-      return new Response(obj.body,{headers:h});
-    }catch(e){return err(e.message||String(e),401);}
-  }
-  if(url.pathname===apiPrefix+'/termux/orders'){
-    if(!(await termuxToken()))return err('Termux authorization required.',401);
-    try{
-      const status=clean(url.searchParams.get('status'));
-      const includeAll=String(url.searchParams.get('includeAll')||'')==='1';
-      const limit=Math.min(200,Math.max(1,num(url.searchParams.get('limit'),200)));
-      if(includeAll){
-        let sql='SELECT * FROM orders';const args=[];
-        if(status){sql+=' WHERE status=?';args.push(status);}
-        sql+=' ORDER BY created_at ASC LIMIT ?';args.push(limit);
-        const {results}=await env.DB.prepare(sql).bind(...args).all();
-        return json({success:true,orders:(results||[]).map(r=>rowOrder(r,origin,apiPrefix))});
-      }
-      return json({success:true,orders:await adminOrders(env,status,origin,limit,apiPrefix)});
-    }catch(e){return err(e.message||String(e));}
-  }
-  if(url.pathname===apiPrefix+'/termux/status'){
-    if(!(await termuxToken()))return err('Termux authorization required.',401);
-    try{
-      if(request.method!=='POST')return err('POST required.',405);
-      const data=await request.json();
-      const oid=clean(data.orderId).toUpperCase(),status=clean(data.status),reason=data.reason||'';
-      if(!oid)return err('Order ID is required.',400);
-      const allowed=['Pending','Accepted','Declined','Printing','Completed','In transit','Ready to Pickup','Delivered'];
-      if(!allowed.includes(status))return err('Invalid PM PRINT status.',400);
-      const result=await updateOrder(env,[oid],status,reason,{username:'Termux Printer'});
-      return json(result);
-    }catch(e){return err(e.message||String(e));}
-  }
-
   if(url.pathname.startsWith(apiPrefix+'/admin/file')){
     try{
       await requireAdmin(env,request);
@@ -562,19 +510,21 @@ async function handle(request, env){
     let data={};
     if(request.method!=='GET'){
       const ct=request.headers.get('content-type')||'';
-      if((action==='createOrder'||action==='addCartItem')&&ct.toLowerCase().includes('multipart/form-data')){
-        const form=await request.formData();const raw=form.get(action==='addCartItem'?'config_json':'orderData');if(typeof raw!=='string')throw new Error(action==='addCartItem'?'Cart configuration is missing.':'Order data is missing.');
+      if((action==='createOrder'||action==='addCartItem'||action==='updateCustomerProfilePicture')&&ct.toLowerCase().includes('multipart/form-data')){
+        const form=await request.formData();const raw=form.get(action==='addCartItem'?'config_json':action==='updateCustomerProfilePicture'?'profileData':'orderData');if(typeof raw!=='string')throw new Error(action==='addCartItem'?'Cart configuration is missing.':'Order data is missing.');
         try{data=JSON.parse(raw);}catch(_){if(action==='addCartItem')data={config_json:raw};else throw new Error('Invalid order data.');}
         if(action==='addCartItem'){data.config_json=raw;}
-        const file=form.get('file');if(!(file instanceof File))throw new Error('Please select a file first.');data.uploadedFile=file;
+        const file=form.get('file');if(!(file instanceof File))throw new Error(action==='updateCustomerProfilePicture'?'Please select a profile image.':'Please select a file first.');data.uploadedFile=file;
       }else{try{data=await request.json();}catch(_){data={};}}
     }else url.searchParams.forEach((v,k)=>data[k]=v);
 
-    if(action==='getAccountState'){const settings=await getSettings(env);const raw=clean(settings.pmprint_account_management).toLowerCase();const on=raw==='1'||raw==='true'||raw==='on';let customer=null;try{customer=publicCustomer(await requireCustomer(env,request));}catch(_){}return json({success:true,accountManagement:on,accountManagementValue:on?'1':'0',customer});}
+    if(action==='getCustomerProfilePicture'){const c=await requireCustomer(env,request);if(!c.profile_picture_key)throw new Error('No profile picture has been set.');const obj=await env.PRINT_FILES.get(c.profile_picture_key);if(!obj)throw new Error('Profile picture is unavailable.');const headers=new Headers();headers.set('content-type',obj.httpMetadata?.contentType||'image/jpeg');headers.set('cache-control','private, max-age=300');return new Response(obj.body,{status:200,headers});}
+    if(action==='getAccountState'){const settings=await getSettings(env);const raw=clean(settings.pmprint_account_management).toLowerCase();const on=raw==='1'||raw==='true'||raw==='on';const session=await getCustomerSessionState(env,request);return json({success:true,accountManagement:on,accountManagementValue:on?'1':'0',customer:session.customer,forceLogout:session.forceLogout,message:session.message});}
     if(action==='customerLogin'){if(!(await accountManagementOn(env)))return json({success:false,error:'Account Management is currently turned off.'},400);const username=clean(data.username).toLowerCase();const password=String(data.password||'');if(!username||!password)throw new Error('Username and password are required.');const c=await env.DB.prepare('SELECT * FROM pm_customers WHERE username=?').bind(username).first();if(!c){await accountActivity(env,{username},'LOGIN_FAILED','Invalid username or password.',request);return json({success:false,error:'Invalid username or password.'},401);}const salt=c.password_salt;const hash=await accountPasswordHash(password,salt);if(hash!==c.password_hash||c.status!=='Active'){await accountActivity(env,c,'LOGIN_FAILED',c.status!=='Active'?'Inactive account login attempt.':'Invalid password.',request);return json({success:false,error:c.status!=='Active'?'This account is inactive.':'Invalid username or password.'},401);}return customerSessionResponse(env,request,c,!!data.remember);}
     if(action==='customerLogout'){const token=getCookie(request,'pmprint_customer');if(token){const h=await sha256(token);const c=await env.DB.prepare('SELECT c.* FROM pm_customer_sessions s INNER JOIN pm_customers c ON c.id=s.customer_id WHERE s.token_hash=?').bind(h).first();if(c)await accountActivity(env,c,'LOGOUT','Customer signed out.',request);await env.DB.prepare('DELETE FROM pm_customer_sessions WHERE token_hash=?').bind(h).run();}return json({success:true},200,{'set-cookie':cookie('pmprint_customer','',{maxAge:0})});}
     if(action==='getCustomerProfile'){return json({success:true,customer:publicCustomer(await requireCustomer(env,request))});}
     if(action==='changeCustomerPassword'){const c=await requireCustomer(env,request);const old=String(data.currentPassword||''),nw=String(data.newPassword||'');if(nw.length<8)throw new Error('New password must be at least 8 characters.');if(await accountPasswordHash(old,c.password_salt)!==c.password_hash)throw new Error('Current password is incorrect.');const salt=crypto.randomUUID()+crypto.randomUUID(),hash=await accountPasswordHash(nw,salt);await env.DB.prepare('UPDATE pm_customers SET password_hash=?,password_salt=?,updated_at=? WHERE id=?').bind(hash,salt,now(),c.id).run();await accountActivity(env,c,'PASSWORD_CHANGED','Customer password changed.',request);return json({success:true});}
+    if(action==='updateCustomerProfilePicture'){const c=await requireCustomer(env,request);const file=data.uploadedFile;if(!(file instanceof File))throw new Error('Please select a profile image.');if(file.size>5*1024*1024)throw new Error('Profile image must be 5 MB or smaller.');if(!String(file.type||'').startsWith('image/'))throw new Error('Please upload an image file.');const key=`pmprint/profiles/${c.id}/${Date.now()}-${crypto.randomUUID()}.${(String(file.type).split('/')[1]||'jpg').replace(/[^A-Za-z0-9]/g,'')}`;await env.PRINT_FILES.put(key,await file.arrayBuffer(),{httpMetadata:{contentType:file.type||'image/jpeg'},customMetadata:{customerId:c.id,profile:true}});if(c.profile_picture_key&&c.profile_picture_key.startsWith('pmprint/profiles/')){try{await env.PRINT_FILES.delete(c.profile_picture_key)}catch(_){}}await env.DB.prepare('UPDATE pm_customers SET profile_picture_key=?,updated_at=? WHERE id=?').bind(key,now(),c.id).run();await accountActivity(env,c,'PROFILE_PICTURE_UPDATED','Customer updated their profile picture.',request);const updated=await env.DB.prepare('SELECT * FROM pm_customers WHERE id=?').bind(c.id).first();return json({success:true,customer:publicCustomer(updated)});}
     if(action==='addCartItem'){
       if(!await accountManagementOn(env))throw new Error('Cart is available only when Account Management is turned on.');
       const c=await requireCustomer(env,request);const file=data.uploadedFile;if(!(file instanceof File))throw new Error('Please select a file first.');
